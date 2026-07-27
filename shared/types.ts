@@ -26,6 +26,7 @@ export interface ForgeTermConfig {
     sidebarBackground?: string
     sidebarForeground?: string
     buttonBackground?: string
+    gradientAngle?: number
     emoji?: string
     themeName?: string
   }
@@ -118,6 +119,7 @@ export interface FavoriteTheme {
     sidebarBackground: string
     sidebarForeground: string
     buttonBackground: string
+    gradientAngle?: number
   }
   terminalMode: string
 }

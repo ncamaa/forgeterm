@@ -6,6 +6,8 @@ export interface WindowTheme {
   sidebarBackground: string
   sidebarForeground: string
   buttonBackground: string
+  /** Titlebar gradient direction in degrees. Defaults to 90 (left -> right). */
+  gradientAngle?: number
 }
 
 export interface TerminalColors {
@@ -27,6 +29,8 @@ export interface PresetTheme {
   id: string
   name: string
   window: WindowTheme
+  /** Key into TERMINAL_THEMES - selecting the preset also switches the terminal. */
+  terminalMode: string
   terminal: TerminalColors
 }
 
@@ -52,9 +56,10 @@ function hexToHsl(hex: string): [number, number, number] {
 }
 
 function hslToHex(h: number, s: number, l: number): string {
+  h = ((h % 360) + 360) % 360
   h /= 360
-  s /= 100
-  l /= 100
+  s = Math.max(0, Math.min(100, s)) / 100
+  l = Math.max(0, Math.min(100, l)) / 100
   const hue2rgb = (p: number, q: number, t: number) => {
     if (t < 0) t += 1
     if (t > 1) t -= 1
@@ -85,135 +90,112 @@ export function adjustAccentBrightness(accentHex: string, delta: number): string
   return hslToHex(h, s, Math.max(10, Math.min(90, l + delta)))
 }
 
-export function generateWindowTheme(accentHex: string): WindowTheme {
-  const [h, s] = hexToHsl(accentHex)
-  const cs = Math.min(s, 35) // clamp saturation for backgrounds
-  return {
-    accentColor: accentHex,
-    titlebarBackground: hslToHex(h, cs * 0.8, 8),
-    titlebarBackgroundEnd: hslToHex(h, cs * 0.6, 12),
-    titlebarForeground: hslToHex(h, Math.min(s, 20), 62),
-    sidebarBackground: hslToHex(h, cs * 0.75, 9),
-    sidebarForeground: hslToHex(h, Math.min(s, 18), 60),
-    buttonBackground: hslToHex(h, cs * 0.7, 17),
-  }
+/** Accent color as rgba, for glows and soft accent washes. */
+export function accentGlow(accentHex: string, alpha: number): string {
+  if (!accentHex?.startsWith('#') || accentHex.length !== 7) return `rgba(56, 189, 248, ${alpha})`
+  const r = parseInt(accentHex.slice(1, 3), 16)
+  const g = parseInt(accentHex.slice(3, 5), 16)
+  const b = parseInt(accentHex.slice(5, 7), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+/** True when the chrome is a light theme, so callers can flip their own contrast. */
+export function isLightChrome(w: Pick<WindowTheme, 'sidebarBackground'> | null | undefined): boolean {
+  const bg = w?.sidebarBackground
+  if (!bg?.startsWith('#') || bg.length !== 7) return false
+  return hexToHsl(bg)[2] > 50
+}
+
+/** Single source of truth for the titlebar gradient, used by app chrome and previews. */
+export function titlebarGradient(
+  w: { titlebarBackground?: string; titlebarBackgroundEnd?: string; gradientAngle?: number } | null | undefined,
+  fallback = '#101c3a'
+): string {
+  const start = w?.titlebarBackground ?? fallback
+  if (!w?.titlebarBackgroundEnd) return start
+  return `linear-gradient(${w.gradientAngle ?? 90}deg, ${start}, ${w.titlebarBackgroundEnd})`
 }
 
 // --- Terminal themes ---
 
+type Ansi = [string, string, string, string, string, string, string, string]
+
+function term(bg: string, fg: string, cursor: string, ansi: Ansi): TerminalColors {
+  const [black, red, green, yellow, blue, magenta, cyan, white] = ansi
+  return {
+    background: bg,
+    foreground: fg,
+    cursor,
+    selection: accentGlow(cursor, 0.28),
+    black,
+    red,
+    green,
+    yellow,
+    blue,
+    magenta,
+    cyan,
+    white,
+  }
+}
+
 export const TERMINAL_THEMES: Record<string, TerminalColors> = {
-  dark: {
-    background: '#0f172a',
-    foreground: '#e2e8f0',
-    cursor: '#38bdf8',
-    selection: 'rgba(56, 189, 248, 0.3)',
-    black: '#1e293b',
-    red: '#f87171',
-    green: '#4ade80',
-    yellow: '#facc15',
-    blue: '#60a5fa',
-    magenta: '#c084fc',
-    cyan: '#22d3ee',
-    white: '#f1f5f9',
-  },
-  light: {
-    background: '#f8fafc',
-    foreground: '#1e293b',
-    cursor: '#0284c7',
-    selection: 'rgba(2, 132, 199, 0.2)',
-    black: '#334155',
-    red: '#dc2626',
-    green: '#16a34a',
-    yellow: '#ca8a04',
-    blue: '#2563eb',
-    magenta: '#9333ea',
-    cyan: '#0891b2',
-    white: '#f1f5f9',
-  },
-  midnight: {
-    background: '#0a0e1a',
-    foreground: '#c8d6e5',
-    cursor: '#48dbfb',
-    selection: 'rgba(72, 219, 251, 0.25)',
-    black: '#141a2e',
-    red: '#ff6b6b',
-    green: '#55efc4',
-    yellow: '#feca57',
-    blue: '#54a0ff',
-    magenta: '#a29bfe',
-    cyan: '#00d2d3',
-    white: '#dfe6e9',
-  },
-  ocean: {
-    background: '#0b1622',
-    foreground: '#b8d4e3',
-    cursor: '#00b894',
-    selection: 'rgba(0, 184, 148, 0.25)',
-    black: '#152238',
-    red: '#e17055',
-    green: '#00b894',
-    yellow: '#fdcb6e',
-    blue: '#74b9ff',
-    magenta: '#a29bfe',
-    cyan: '#81ecec',
-    white: '#dfe6e9',
-  },
-  forest: {
-    background: '#0d1a0f',
-    foreground: '#b8d4b0',
-    cursor: '#2ecc71',
-    selection: 'rgba(46, 204, 113, 0.25)',
-    black: '#1a2e1c',
-    red: '#e74c3c',
-    green: '#2ecc71',
-    yellow: '#f1c40f',
-    blue: '#3498db',
-    magenta: '#9b59b6',
-    cyan: '#1abc9c',
-    white: '#ecf0f1',
-  },
-  warm: {
-    background: '#1a120b',
-    foreground: '#d4c5b0',
-    cursor: '#e67e22',
-    selection: 'rgba(230, 126, 34, 0.25)',
-    black: '#2c1e12',
-    red: '#e74c3c',
-    green: '#27ae60',
-    yellow: '#f39c12',
-    blue: '#2980b9',
-    magenta: '#8e44ad',
-    cyan: '#16a085',
-    white: '#ecf0f1',
-  },
-  nord: {
-    background: '#2e3440',
-    foreground: '#d8dee9',
-    cursor: '#88c0d0',
-    selection: 'rgba(136, 192, 208, 0.25)',
-    black: '#3b4252',
-    red: '#bf616a',
-    green: '#a3be8c',
-    yellow: '#ebcb8b',
-    blue: '#81a1c1',
-    magenta: '#b48ead',
-    cyan: '#88c0d0',
-    white: '#e5e9f0',
-  },
-  rose: {
-    background: '#1a0d12',
-    foreground: '#d4b8c2',
-    cursor: '#e84393',
-    selection: 'rgba(232, 67, 147, 0.25)',
-    black: '#2c1420',
-    red: '#fd79a8',
-    green: '#55efc4',
-    yellow: '#ffeaa7',
-    blue: '#74b9ff',
-    magenta: '#a29bfe',
-    cyan: '#81ecec',
-    white: '#ffeef5',
-  },
+  dark: term('#141d31', '#e6edf7', '#38bdf8', [
+    '#1e293b', '#ff7b72', '#56d364', '#ffd866', '#79b8ff', '#d2a8ff', '#56d4dd', '#f1f5f9',
+  ]),
+  light: term('#f8fafc', '#1e293b', '#0284c7', [
+    '#334155', '#dc2626', '#16a34a', '#ca8a04', '#2563eb', '#9333ea', '#0891b2', '#f1f5f9',
+  ]),
+  midnight: term('#151d36', '#cfdcf0', '#6aa8ff', [
+    '#1c2540', '#ff7b8a', '#5ce68f', '#ffd479', '#7ab8ff', '#b79bff', '#5ad4f0', '#e4ecf8',
+  ]),
+  ocean: term('#112536', '#bfdcea', '#22d3ee', [
+    '#17293c', '#ff8a6b', '#3ddc97', '#ffd166', '#6cc5ff', '#a6a1ff', '#5ee7e7', '#dff0f6',
+  ]),
+  aurora: term('#102831', '#c2e5dd', '#2ee6ac', [
+    '#163035', '#ff7f7f', '#3ff0b0', '#ffe07a', '#63c7ff', '#b39bff', '#4fe6e6', '#e0f5f0',
+  ]),
+  forest: term('#17291c', '#c3dcbc', '#4ade80', [
+    '#1e3324', '#ef6f5e', '#5bdc7d', '#f2cd4f', '#58a9e6', '#b07fd0', '#3ecfae', '#e9f3e6',
+  ]),
+  citrus: term('#212916', '#dde7c6', '#b8e63c', [
+    '#29321a', '#ff7a6a', '#a8e34a', '#f5d94a', '#6fb8ff', '#c79bff', '#5fdec6', '#f0f5e2',
+  ]),
+  warm: term('#2c1f0e', '#e3cfae', '#f5a623', [
+    '#33240f', '#ff7a5c', '#86cf5e', '#ffc043', '#6fa8dc', '#c58af0', '#4fc9b0', '#f5ead6',
+  ]),
+  sunset: term('#2f1a21', '#f0cfcb', '#ff8a4c', [
+    '#38202a', '#ff7a7a', '#7ee0a1', '#ffbf5e', '#7fb6ff', '#ff8ad0', '#5fd8d8', '#ffe6e0',
+  ]),
+  ember: term('#2e1518', '#f0cbc6', '#ff6b5e', [
+    '#391a1b', '#ff7161', '#86dc8b', '#ffc860', '#7fb3ff', '#e08aff', '#55d6cf', '#ffe3dd',
+  ]),
+  rose: term('#2e1721', '#ecc9d6', '#ff5fa2', [
+    '#381c29', '#ff7f9e', '#6fe3b6', '#ffdd8f', '#8fb8ff', '#e59bff', '#6fe0e0', '#ffe4ef',
+  ]),
+  grape: term('#27163c', '#e0cef5', '#e879f9', [
+    '#2e1c47', '#ff7b9c', '#7fe6a6', '#ffd782', '#8fb2ff', '#f18aff', '#6fdff0', '#f0e2ff',
+  ]),
+  violet: term('#1e1737', '#d8d0f5', '#a78bfa', [
+    '#241c42', '#ff8598', '#7de3a8', '#ffd97d', '#8ab4ff', '#c79bff', '#6ee0e6', '#ece6ff',
+  ]),
+  abyss: term('#15193d', '#ccd3f5', '#818cf8', [
+    '#1a1f47', '#ff8093', '#6fe0a5', '#ffd36e', '#7da2ff', '#b48aff', '#5fd6ee', '#e2e8ff',
+  ]),
+  nord: term('#2e3440', '#d8dee9', '#88c0d0', [
+    '#3b4252', '#bf616a', '#a3be8c', '#ebcb8b', '#81a1c1', '#b48ead', '#88c0d0', '#e5e9f0',
+  ]),
+  mono: term('#1d2025', '#d5d9df', '#c7ccd4', [
+    '#23262c', '#e8858a', '#97cf9a', '#ddc179', '#92b3d9', '#bd9bd0', '#86c9c9', '#eceff3',
+  ]),
+  neon: term('#1d1032', '#f2d9ff', '#ff4fd8', [
+    '#26123f', '#ff4d6d', '#3bf0a5', '#ffe14d', '#4fc3ff', '#ff5fe0', '#38f0ec', '#ffe9ff',
+  ]),
+  frost: term('#eef4fa', '#22303f', '#0284c7', [
+    '#33455a', '#d13b3b', '#17864f', '#a97400', '#1d6fd6', '#8b3fc4', '#0d7f96', '#f7fbff',
+  ]),
+  latte: term('#f7f1e6', '#3b3128', '#c2410c', [
+    '#4a3f33', '#c23a2b', '#4a7c1f', '#a06a00', '#2563a8', '#8b3d8b', '#0f7a72', '#fffaf2',
+  ]),
 }
 
 export function getTerminalTheme(mode: string): TerminalColors {
@@ -224,149 +206,98 @@ export function getTerminalThemeNames(): string[] {
   return Object.keys(TERMINAL_THEMES)
 }
 
-// --- Preset themes (brightened for better differentiation) ---
+// --- Window chrome generation ---
 
-export const PRESET_THEMES: PresetTheme[] = [
-  {
-    id: 'midnight',
-    name: 'Midnight',
-    window: {
-      accentColor: '#38bdf8',
-      titlebarBackground: '#0f1a2e',
-      titlebarBackgroundEnd: '#162640',
-      titlebarForeground: '#8faabe',
-      sidebarBackground: '#111b2e',
-      sidebarForeground: '#8faabe',
-      buttonBackground: '#1c2d4d',
-    },
-    terminal: TERMINAL_THEMES.dark,
-  },
-  {
-    id: 'ocean',
-    name: 'Ocean',
-    window: {
-      accentColor: '#22d3ee',
-      titlebarBackground: '#0b1f2a',
-      titlebarBackgroundEnd: '#102e3d',
-      titlebarForeground: '#7ec8d8',
-      sidebarBackground: '#0c2129',
-      sidebarForeground: '#7ec8d8',
-      buttonBackground: '#143b4d',
-    },
-    terminal: TERMINAL_THEMES.dark,
-  },
-  {
-    id: 'forest',
-    name: 'Forest',
-    window: {
-      accentColor: '#4ade80',
-      titlebarBackground: '#0d2414',
-      titlebarBackgroundEnd: '#13331f',
-      titlebarForeground: '#80c49a',
-      sidebarBackground: '#0e2616',
-      sidebarForeground: '#80c49a',
-      buttonBackground: '#193d2c',
-    },
-    terminal: TERMINAL_THEMES.dark,
-  },
-  {
-    id: 'sunset',
-    name: 'Sunset',
-    window: {
-      accentColor: '#fb923c',
-      titlebarBackground: '#22170c',
-      titlebarBackgroundEnd: '#322112',
-      titlebarForeground: '#c8a882',
-      sidebarBackground: '#24180d',
-      sidebarForeground: '#c8a882',
-      buttonBackground: '#422c1b',
-    },
-    terminal: TERMINAL_THEMES.dark,
-  },
-  {
-    id: 'lavender',
-    name: 'Lavender',
-    window: {
-      accentColor: '#a78bfa',
-      titlebarBackground: '#171328',
-      titlebarBackgroundEnd: '#211d3c',
-      titlebarForeground: '#a898c0',
-      sidebarBackground: '#18152a',
-      sidebarForeground: '#a898c0',
-      buttonBackground: '#2a2248',
-    },
-    terminal: TERMINAL_THEMES.dark,
-  },
-  {
-    id: 'rose',
-    name: 'Rose',
-    window: {
-      accentColor: '#fb7185',
-      titlebarBackground: '#221218',
-      titlebarBackgroundEnd: '#321a23',
-      titlebarForeground: '#c89aa6',
-      sidebarBackground: '#24141a',
-      sidebarForeground: '#c89aa6',
-      buttonBackground: '#42202e',
-    },
-    terminal: TERMINAL_THEMES.dark,
-  },
-  {
-    id: 'ember',
-    name: 'Ember',
-    window: {
-      accentColor: '#f87171',
-      titlebarBackground: '#22100f',
-      titlebarBackgroundEnd: '#321616',
-      titlebarForeground: '#c89898',
-      sidebarBackground: '#241210',
-      sidebarForeground: '#c89898',
-      buttonBackground: '#421e1e',
-    },
-    terminal: TERMINAL_THEMES.dark,
-  },
-  {
-    id: 'mint',
-    name: 'Mint',
-    window: {
-      accentColor: '#2dd4bf',
-      titlebarBackground: '#0b231e',
-      titlebarBackgroundEnd: '#12332c',
-      titlebarForeground: '#7ec4b8',
-      sidebarBackground: '#0d2520',
-      sidebarForeground: '#7ec4b8',
-      buttonBackground: '#163d36',
-    },
-    terminal: TERMINAL_THEMES.dark,
-  },
-  {
-    id: 'graphite',
-    name: 'Graphite',
-    window: {
-      accentColor: '#94a3b8',
-      titlebarBackground: '#1a1a1a',
-      titlebarBackgroundEnd: '#222222',
-      titlebarForeground: '#909090',
-      sidebarBackground: '#1c1c1c',
-      sidebarForeground: '#909090',
-      buttonBackground: '#303030',
-    },
-    terminal: TERMINAL_THEMES.dark,
-  },
-  {
-    id: 'gold',
-    name: 'Gold',
-    window: {
-      accentColor: '#fbbf24',
-      titlebarBackground: '#221c0c',
-      titlebarBackgroundEnd: '#322a12',
-      titlebarForeground: '#c8b878',
-      sidebarBackground: '#241e0d',
-      sidebarForeground: '#c8b878',
-      buttonBackground: '#42361b',
-    },
-    terminal: TERMINAL_THEMES.dark,
-  },
+type HSL = [number, number, number]
+
+/**
+ * Builds a full window chrome from an accent plus three background stops.
+ * Text and button colors are derived from the accent hue so every theme is
+ * internally consistent, and light chrome (sidebar lightness > 50) flips to
+ * dark text automatically.
+ */
+function buildChrome(accent: string, from: HSL, to: HSL, sidebar: HSL, angle = 90): WindowTheme {
+  const [ah, as] = hexToHsl(accent)
+  const [sh, ss, sl] = sidebar
+  const light = sl > 50
+  return {
+    accentColor: accent,
+    titlebarBackground: hslToHex(from[0], from[1], from[2]),
+    titlebarBackgroundEnd: hslToHex(to[0], to[1], to[2]),
+    titlebarForeground: light ? hslToHex(ah, Math.min(as, 65), 24) : hslToHex(ah, Math.min(as, 50), 82),
+    sidebarBackground: hslToHex(sh, ss, sl),
+    sidebarForeground: light ? hslToHex(ah, Math.min(as, 50), 30) : hslToHex(ah, Math.min(as, 34), 74),
+    buttonBackground: light
+      ? hslToHex(sh, Math.min(ss, 34), sl - 9)
+      : hslToHex(sh, Math.min(ss + 8, 55), sl + 12),
+    gradientAngle: angle,
+  }
+}
+
+export function generateWindowTheme(accentHex: string): WindowTheme {
+  const [h, s] = hexToHsl(accentHex)
+  const cs = Math.min(s, 58)
+  return buildChrome(
+    accentHex,
+    [h - 8, cs * 0.85, 16],
+    [h + 20, cs * 0.8, 28],
+    [h, cs * 0.75, 15],
+    105
+  )
+}
+
+// --- Preset themes ---
+
+interface PresetSpec {
+  id: string
+  name: string
+  accent: string
+  from: HSL
+  to: HSL
+  sidebar: HSL
+  angle: number
+  terminalMode: string
+}
+
+const PRESET_SPECS: PresetSpec[] = [
+  // Blues / cyans
+  { id: 'midnight', name: 'Midnight', accent: '#4c9eff', from: [226, 58, 17], to: [209, 66, 30], sidebar: [224, 46, 15], angle: 100, terminalMode: 'midnight' },
+  { id: 'ocean', name: 'Ocean', accent: '#22d3ee', from: [202, 62, 15], to: [184, 62, 28], sidebar: [199, 52, 14], angle: 95, terminalMode: 'ocean' },
+  { id: 'aurora', name: 'Aurora', accent: '#2ee6ac', from: [196, 58, 16], to: [152, 54, 27], sidebar: [178, 46, 14], angle: 115, terminalMode: 'aurora' },
+  // Greens / yellows
+  { id: 'forest', name: 'Forest', accent: '#4ade80', from: [152, 46, 14], to: [96, 44, 24], sidebar: [145, 40, 13], angle: 110, terminalMode: 'forest' },
+  { id: 'citrus', name: 'Citrus', accent: '#b8e63c', from: [92, 46, 15], to: [58, 54, 26], sidebar: [85, 40, 14], angle: 110, terminalMode: 'citrus' },
+  { id: 'gold', name: 'Gold', accent: '#fbbf24', from: [28, 56, 15], to: [45, 62, 27], sidebar: [34, 46, 14], angle: 100, terminalMode: 'warm' },
+  // Warm / reds
+  { id: 'sunset', name: 'Sunset', accent: '#ff8a3d', from: [12, 62, 17], to: [330, 54, 28], sidebar: [8, 50, 15], angle: 115, terminalMode: 'sunset' },
+  { id: 'ember', name: 'Ember', accent: '#ff5f52', from: [0, 58, 15], to: [16, 58, 27], sidebar: [358, 48, 14], angle: 100, terminalMode: 'ember' },
+  { id: 'rose', name: 'Rose', accent: '#ff5c9c', from: [336, 54, 16], to: [352, 52, 28], sidebar: [338, 44, 15], angle: 100, terminalMode: 'rose' },
+  // Pinks / purples
+  { id: 'bubblegum', name: 'Bubblegum', accent: '#f472d0', from: [302, 56, 16], to: [268, 56, 29], sidebar: [296, 46, 15], angle: 120, terminalMode: 'grape' },
+  { id: 'lavender', name: 'Lavender', accent: '#a78bfa', from: [252, 52, 17], to: [274, 54, 29], sidebar: [256, 44, 16], angle: 100, terminalMode: 'violet' },
+  { id: 'cosmos', name: 'Cosmos', accent: '#c084fc', from: [240, 64, 14], to: [292, 58, 27], sidebar: [248, 52, 14], angle: 135, terminalMode: 'abyss' },
+  { id: 'synthwave', name: 'Synthwave', accent: '#ff3fd8', from: [268, 72, 16], to: [192, 78, 26], sidebar: [270, 58, 13], angle: 125, terminalMode: 'neon' },
+  // Neutrals
+  { id: 'nord', name: 'Nord', accent: '#88c0d0', from: [220, 17, 24], to: [219, 21, 34], sidebar: [220, 16, 22], angle: 100, terminalMode: 'nord' },
+  { id: 'graphite', name: 'Graphite', accent: '#b0b8c4', from: [220, 6, 18], to: [220, 7, 28], sidebar: [220, 5, 17], angle: 100, terminalMode: 'mono' },
+  // Light
+  { id: 'latte', name: 'Latte', accent: '#e2691a', from: [32, 48, 92], to: [18, 44, 85], sidebar: [30, 38, 94], angle: 105, terminalMode: 'latte' },
+  { id: 'arctic', name: 'Arctic', accent: '#0ea5e9', from: [205, 48, 94], to: [193, 42, 86], sidebar: [205, 40, 96], angle: 105, terminalMode: 'frost' },
+]
+
+export const PRESET_THEMES: PresetTheme[] = PRESET_SPECS.map((spec) => ({
+  id: spec.id,
+  name: spec.name,
+  window: buildChrome(spec.accent, spec.from, spec.to, spec.sidebar, spec.angle),
+  terminalMode: spec.terminalMode,
+  terminal: TERMINAL_THEMES[spec.terminalMode],
+}))
+
+/** Vivid accents for the "generate from color" quick picks. */
+export const ACCENT_SWATCHES = [
+  '#4c9eff', '#22d3ee', '#2ee6ac', '#4ade80', '#b8e63c', '#fbbf24',
+  '#ff8a3d', '#ff5f52', '#ff5c9c', '#f472d0', '#a78bfa', '#c084fc',
+  '#ff3fd8', '#88c0d0', '#b0b8c4', '#e2691a',
 ]
 
 // --- Emoji set ---

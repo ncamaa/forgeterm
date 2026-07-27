@@ -1,12 +1,16 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { ForgeTermConfig, FavoriteTheme } from '../../shared/types'
 import {
+  ACCENT_SWATCHES,
   PRESET_THEMES,
   PROJECT_EMOJIS,
   TERMINAL_THEMES,
+  accentGlow,
   generateWindowTheme,
   getTerminalTheme,
+  titlebarGradient,
   type PresetTheme,
+  type TerminalColors,
   type WindowTheme,
 } from '../themes'
 
@@ -47,6 +51,51 @@ function ColorField({ label, value, onChange }: ColorFieldProps) {
   )
 }
 
+/** Miniature app window + the terminal's ANSI palette, so themes read apart at a glance. */
+function ThemeSwatch({ w, terminal }: { w: WindowTheme; terminal: TerminalColors }) {
+  return (
+    <div className="theme-card-preview">
+      <div className="tc-titlebar" style={{ background: titlebarGradient(w), borderBottomColor: w.accentColor }}>
+        <span className="tc-dot" style={{ background: w.accentColor }} />
+        <span className="tc-title-line" style={{ background: w.titlebarForeground }} />
+      </div>
+      <div className="tc-body">
+        <div className="tc-sidebar" style={{ background: w.sidebarBackground }}>
+          <div
+            className="tc-session active"
+            style={{ borderLeftColor: w.accentColor, background: w.buttonBackground }}
+          />
+          <div className="tc-session" style={{ background: w.buttonBackground, opacity: 0.4 }} />
+          <div className="tc-session" style={{ background: w.buttonBackground, opacity: 0.4 }} />
+        </div>
+        <div className="tc-terminal" style={{ background: terminal.background }}>
+          <span className="tc-line" style={{ background: terminal.green, width: '58%' }} />
+          <span className="tc-line" style={{ background: terminal.foreground, width: '80%', opacity: 0.5 }} />
+          <span className="tc-line" style={{ background: terminal.blue, width: '44%' }} />
+        </div>
+      </div>
+      <div className="tc-swatches" style={{ background: terminal.background }}>
+        {[terminal.red, terminal.yellow, terminal.green, terminal.cyan, terminal.blue, terminal.magenta].map(
+          (c, i) => (
+            <span key={i} className="tc-swatch" style={{ background: c }} />
+          )
+        )}
+      </div>
+    </div>
+  )
+}
+
+function cardVars(accent: string, w?: WindowTheme): React.CSSProperties {
+  return {
+    '--card-accent': accent,
+    '--card-glow': accentGlow(accent, 0.55),
+    '--card-glow-soft': accentGlow(accent, 0.22),
+    // Tinting the whole card with its own chrome is what makes themes
+    // distinguishable at thumbnail size.
+    ...(w ? { background: w.sidebarBackground, color: w.sidebarForeground } : {}),
+  } as React.CSSProperties
+}
+
 function ThemeCard({
   theme,
   selected,
@@ -60,28 +109,15 @@ function ThemeCard({
   onMouseEnter?: () => void
   onMouseLeave?: () => void
 }) {
-  const w = theme.window
-  const gradient = `linear-gradient(to right, ${w.titlebarBackground}, ${w.titlebarBackgroundEnd})`
   return (
     <button
       className={`theme-card ${selected ? 'selected' : ''}`}
       onClick={onClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      style={selected ? { borderColor: w.accentColor } : undefined}
+      style={cardVars(theme.window.accentColor, theme.window)}
     >
-      <div className="theme-card-preview">
-        <div className="tc-titlebar" style={{ background: gradient }}>
-          <span className="tc-dot" style={{ background: w.accentColor }} />
-        </div>
-        <div className="tc-body">
-          <div className="tc-sidebar" style={{ background: w.sidebarBackground }}>
-            <div className="tc-session" style={{ borderLeftColor: w.accentColor, background: w.buttonBackground }} />
-            <div className="tc-session" />
-          </div>
-          <div className="tc-terminal" style={{ background: theme.terminal.background }} />
-        </div>
-      </div>
+      <ThemeSwatch w={theme.window} terminal={theme.terminal} />
       <span className="theme-card-name">{theme.name}</span>
     </button>
   )
@@ -102,29 +138,17 @@ function FavoriteCard({
   onMouseEnter?: () => void
   onMouseLeave?: () => void
 }) {
-  const w = fav.window
-  const gradient = `linear-gradient(to right, ${w.titlebarBackground}, ${w.titlebarBackgroundEnd})`
-  const termBg = (TERMINAL_THEMES[fav.terminalMode] || TERMINAL_THEMES.dark).background
+  const w = fav.window as WindowTheme
+  const terminal = TERMINAL_THEMES[fav.terminalMode] || TERMINAL_THEMES.dark
   return (
     <button
       className={`theme-card ${selected ? 'selected' : ''}`}
       onClick={onClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      style={selected ? { borderColor: w.accentColor } : undefined}
+      style={cardVars(w.accentColor, w)}
     >
-      <div className="theme-card-preview">
-        <div className="tc-titlebar" style={{ background: gradient }}>
-          <span className="tc-dot" style={{ background: w.accentColor }} />
-        </div>
-        <div className="tc-body">
-          <div className="tc-sidebar" style={{ background: w.sidebarBackground }}>
-            <div className="tc-session" style={{ borderLeftColor: w.accentColor, background: w.buttonBackground }} />
-            <div className="tc-session" />
-          </div>
-          <div className="tc-terminal" style={{ background: termBg }} />
-        </div>
-      </div>
+      <ThemeSwatch w={w} terminal={terminal} />
       <span className="theme-card-name">
         {fav.name}
         <button
@@ -139,11 +163,13 @@ function FavoriteCard({
   )
 }
 
-function MiniPreview({ windowTheme, terminalBg }: { windowTheme: WindowTheme; terminalBg: string }) {
-  const gradient = `linear-gradient(to right, ${windowTheme.titlebarBackground}, ${windowTheme.titlebarBackgroundEnd})`
+function MiniPreview({ windowTheme, terminal }: { windowTheme: WindowTheme; terminal: TerminalColors }) {
   return (
-    <div className="theme-preview">
-      <div className="preview-titlebar" style={{ background: gradient, color: windowTheme.titlebarForeground }}>
+    <div className="theme-preview" style={cardVars(windowTheme.accentColor)}>
+      <div
+        className="preview-titlebar"
+        style={{ background: titlebarGradient(windowTheme), color: windowTheme.titlebarForeground }}
+      >
         Project Name
       </div>
       <div className="preview-body">
@@ -152,7 +178,7 @@ function MiniPreview({ windowTheme, terminalBg }: { windowTheme: WindowTheme; te
             <span className="preview-dot" style={{ background: windowTheme.accentColor }} />
             shell
           </div>
-          <div className="preview-session active" style={{ borderLeftColor: windowTheme.accentColor }}>
+          <div className="preview-session active" style={{ borderLeftColor: windowTheme.accentColor, background: windowTheme.buttonBackground }}>
             <span className="preview-dot" style={{ background: windowTheme.accentColor }} />
             server
           </div>
@@ -160,7 +186,16 @@ function MiniPreview({ windowTheme, terminalBg }: { windowTheme: WindowTheme; te
             + New
           </div>
         </div>
-        <div className="preview-terminal" style={{ background: terminalBg }} />
+        <div className="preview-terminal" style={{ background: terminal.background, color: terminal.foreground }}>
+          <div className="preview-term-line"><span style={{ color: terminal.green }}>$</span> <span style={{ color: terminal.foreground }}>pnpm dev</span></div>
+          <div className="preview-term-line" style={{ color: terminal.cyan }}>ready in 240 ms</div>
+          <div className="preview-term-line" style={{ color: terminal.magenta }}>http://localhost:5173</div>
+          <div className="preview-term-palette">
+            {[terminal.red, terminal.yellow, terminal.green, terminal.cyan, terminal.blue, terminal.magenta, terminal.white].map((c, i) => (
+              <span key={i} className="preview-term-chip" style={{ background: c }} />
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -218,6 +253,7 @@ export function ThemeEditor({ config, onSave, onCancel, onPreview }: ThemeEditor
         sidebarBackground: w.sidebarBackground ?? '#0c1322',
         sidebarForeground: w.sidebarForeground ?? '#8faabe',
         buttonBackground: w.buttonBackground ?? '#172541',
+        gradientAngle: w.gradientAngle,
       })
     }
   }, [config, favorites])
@@ -234,7 +270,7 @@ export function ThemeEditor({ config, onSave, onCancel, onPreview }: ThemeEditor
     return custom
   })()
 
-  const terminalBg = (TERMINAL_THEMES[terminalMode] || TERMINAL_THEMES.dark).background
+  const terminalTheme = TERMINAL_THEMES[terminalMode] || TERMINAL_THEMES.dark
 
   // Send preview to parent and clear on unmount
   const sendPreview = useCallback((theme: WindowTheme | null) => {
@@ -249,6 +285,8 @@ export function ThemeEditor({ config, onSave, onCancel, onPreview }: ThemeEditor
     setSelectedPreset(theme.id)
     setSelectedFavorite(null)
     setCustom({ ...theme.window })
+    // A preset owns its terminal palette too - that is most of what makes it look different.
+    setTerminalMode(theme.terminalMode)
     setShowCustom(false)
     sendPreview(null) // clear hover preview since we're committing
   }, [sendPreview])
@@ -343,10 +381,29 @@ export function ThemeEditor({ config, onSave, onCancel, onPreview }: ThemeEditor
 
   return (
     <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal theme-editor-modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Customize Theme</h3>
+      <div className="modal theme-editor-modal" onClick={(e) => e.stopPropagation()} style={cardVars(activeTheme.accentColor)}>
+        <div className="theme-editor-head">
+          <h3>Customize Theme</h3>
+          <MiniPreview windowTheme={activeTheme} terminal={terminalTheme} />
+        </div>
 
-        <MiniPreview windowTheme={activeTheme} terminalBg={terminalBg} />
+        <div className="theme-editor-body">
+        {/* Preset Themes */}
+        <div className="theme-section">
+          <div className="theme-section-title">Themes</div>
+          <div className="theme-grid">
+            {PRESET_THEMES.map((theme) => (
+              <ThemeCard
+                key={theme.id}
+                theme={theme}
+                selected={selectedPreset === theme.id}
+                onClick={() => handleSelectPreset(theme)}
+                onMouseEnter={() => handlePresetHover(theme)}
+                onMouseLeave={handleHoverLeave}
+              />
+            ))}
+          </div>
+        </div>
 
         {/* Emoji */}
         <div className="theme-section">
@@ -368,23 +425,6 @@ export function ThemeEditor({ config, onSave, onCancel, onPreview }: ThemeEditor
               >
                 {e}
               </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Preset Themes */}
-        <div className="theme-section">
-          <div className="theme-section-title">Themes</div>
-          <div className="theme-grid">
-            {PRESET_THEMES.map((theme) => (
-              <ThemeCard
-                key={theme.id}
-                theme={theme}
-                selected={selectedPreset === theme.id}
-                onClick={() => handleSelectPreset(theme)}
-                onMouseEnter={() => handlePresetHover(theme)}
-                onMouseLeave={handleHoverLeave}
-              />
             ))}
           </div>
         </div>
@@ -419,22 +459,37 @@ export function ThemeEditor({ config, onSave, onCancel, onPreview }: ThemeEditor
               onChange={(e) => handleGenerateFromColor(e.target.value)}
               className="color-picker generate-picker"
             />
-            <span className="generate-label">Pick a color to auto-generate a matching theme</span>
+            <div className="accent-swatch-row">
+              {ACCENT_SWATCHES.map((c) => (
+                <button
+                  key={c}
+                  className={`accent-swatch ${generateColor.toLowerCase() === c ? 'selected' : ''}`}
+                  style={{ background: c, '--card-glow': accentGlow(c, 0.7) } as React.CSSProperties}
+                  title={c}
+                  onClick={() => handleGenerateFromColor(c)}
+                />
+              ))}
+            </div>
           </div>
+          <span className="generate-label">Pick any color to auto-generate matching window chrome</span>
         </div>
 
         {/* Terminal mode */}
         <div className="theme-section">
-          <div className="theme-section-title">Terminal</div>
+          <div className="theme-section-title">Terminal Palette</div>
           <div className="terminal-mode-row">
             {Object.entries(TERMINAL_THEMES).map(([id, theme]) => (
               <button
                 key={id}
                 className={`terminal-mode-btn ${terminalMode === id ? 'active' : ''}`}
                 onClick={() => setTerminalMode(id)}
-                style={terminalMode === id ? { borderColor: activeTheme.accentColor } : undefined}
+                style={cardVars(activeTheme.accentColor)}
               >
-                <span className="mode-swatch" style={{ background: theme.background, border: id === 'light' ? '1px solid #cbd5e1' : undefined }} />
+                <span className="mode-swatch" style={{ background: theme.background }}>
+                  {[theme.red, theme.green, theme.blue, theme.magenta].map((c, i) => (
+                    <span key={i} className="mode-swatch-dot" style={{ background: c }} />
+                  ))}
+                </span>
                 {id.charAt(0).toUpperCase() + id.slice(1)}
               </button>
             ))}
@@ -461,6 +516,7 @@ export function ThemeEditor({ config, onSave, onCancel, onPreview }: ThemeEditor
               <ColorField label="Button Background" value={custom.buttonBackground} onChange={(v) => updateCustomField('buttonBackground', v)} />
             </div>
           )}
+        </div>
         </div>
 
         {/* Save as favorite dialog */}
@@ -490,7 +546,7 @@ export function ThemeEditor({ config, onSave, onCancel, onPreview }: ThemeEditor
           </div>
         )}
 
-        <div className="modal-actions">
+        <div className="modal-actions theme-editor-actions">
           <button type="button" className="btn-cancel" onClick={onCancel}>
             Cancel
           </button>
@@ -505,7 +561,10 @@ export function ThemeEditor({ config, onSave, onCancel, onPreview }: ThemeEditor
           <button
             type="button"
             className="btn-create"
-            style={{ backgroundColor: activeTheme.accentColor }}
+            style={{
+              backgroundColor: activeTheme.accentColor,
+              boxShadow: `0 0 18px ${accentGlow(activeTheme.accentColor, 0.5)}`,
+            }}
             onClick={handleSave}
           >
             Apply Theme

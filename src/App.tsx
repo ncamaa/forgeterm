@@ -17,7 +17,7 @@ import { ClaudeConnectionBanner } from './components/ClaudeConnectionBanner'
 import { useSessionStore } from './store/sessionStore'
 import type { ForgeTermConfig, CliStatus, ClaudeLaunch, HistoricalSession } from '../shared/types'
 import type { WindowTheme } from './themes'
-import { generateWindowTheme, adjustAccentBrightness, getTerminalTheme } from './themes'
+import { generateWindowTheme, adjustAccentBrightness, getTerminalTheme, titlebarGradient, accentGlow } from './themes'
 import './App.css'
 
 type SidebarMode = 'full' | 'compact' | 'hidden'
@@ -66,9 +66,7 @@ function App() {
   // Use preview theme (from hover) if available, otherwise use config
   const effectiveWin = previewTheme ?? win
   const accentColor = effectiveWin?.accentColor ?? '#38bdf8'
-  const titlebarBg = effectiveWin?.titlebarBackgroundEnd
-    ? `linear-gradient(to right, ${effectiveWin.titlebarBackground ?? '#0f1a2e'}, ${effectiveWin.titlebarBackgroundEnd})`
-    : effectiveWin?.titlebarBackground ?? '#0f1a2e'
+  const titlebarBg = titlebarGradient(effectiveWin)
   const titlebarFg = effectiveWin?.titlebarForeground ?? '#8faabe'
   const sidebarBg = effectiveWin?.sidebarBackground
   const sidebarFg = effectiveWin?.sidebarForeground
@@ -688,7 +686,11 @@ function App() {
   return (
     <div
       className="app"
-      style={{ '--accent-color': accentColor } as React.CSSProperties}
+      style={{
+        '--accent-color': accentColor,
+        '--accent-glow': accentGlow(accentColor, 0.55),
+        '--accent-glow-soft': accentGlow(accentColor, 0.18),
+      } as React.CSSProperties}
     >
       <div className="titlebar" style={{ background: titlebarBg }}>
         <button

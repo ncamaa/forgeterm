@@ -525,7 +525,8 @@ function buildCliHandlers(): Map<string, CommandHandler> {
     if (!preset) return { ok: false, error: `Theme "${themeName}" not found. Use theme-list to see available themes.` }
     const config = (loadConfig(resolved) || {}) as ForgeTermConfig
     config.window = { ...preset.window, themeName: preset.id }
-    config.theme = { ...preset.terminal }
+    config.theme = { ...preset.terminal, cursor: preset.window.accentColor }
+    config.terminalTheme = preset.terminalMode
     saveConfig(resolved, config)
     notifyConfigChanged(resolved)
     return { ok: true }
