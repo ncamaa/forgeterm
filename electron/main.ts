@@ -34,6 +34,10 @@ process.env.APP_ROOT = path.join(__dirname, '..')
   }
 }
 
+// Where the `forgeterm` CLI can end up: the app installs to /usr/local/bin,
+// Homebrew installs to its own prefix.
+const CLI_INSTALL_PATHS = ['/usr/local/bin/forgeterm', '/opt/homebrew/bin/forgeterm']
+
 export const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 export const MAIN_DIST = path.join(process.env.APP_ROOT, 'dist-electron')
 export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist')
@@ -2526,21 +2530,24 @@ function setupIpcHandlers() {
     return path.join(__dirname, '..', 'bin', 'forgeterm-cli.sh')
   }
 
+  function isCliInstalled(): boolean {
+    return CLI_INSTALL_PATHS.some((p) => fs.existsSync(p))
+  }
+
   ipcMain.handle('cli:is-installed', () => {
-    return fs.existsSync('/usr/local/bin/forgeterm')
+    return isCliInstalled()
   })
 
   ipcMain.handle('cli:get-status', (): string => {
-    const installed = fs.existsSync('/usr/local/bin/forgeterm')
-    if (!installed) return 'not-setup'
+    if (!isCliInstalled()) return 'not-setup'
     if (notificationServer.isListening()) return 'connected'
     return 'error'
   })
 
-  ipcMain.handle('cli:restart-server', (): boolean => {
+  ipcMain.handle('cli:restart-server', async (): Promise<boolean> => {
     try {
       notificationServer.stop()
-      notificationServer.start()
+      await notificationServer.start()
       return notificationServer.isListening()
     } catch {
       return false
@@ -2563,7 +2570,7 @@ function setupIpcHandlers() {
   })
 
   ipcMain.handle('cli:should-show-prompt', () => {
-    if (fs.existsSync('/usr/local/bin/forgeterm')) return false
+    if (isCliInstalled()) return false
     try {
       const data = JSON.parse(fs.readFileSync(getCliDismissedPath(), 'utf-8'))
       return !data.dismissed
@@ -3140,7 +3147,7 @@ app.whenReady().then(() => {
   buildMenu()
   setupIpcHandlers()
   createTray()
-  notificationServer.start()
+  void notificationServer.start()
 
   // Cleanup session history older than 60 days
   cleanupOldHistory(60)

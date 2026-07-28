@@ -36,11 +36,33 @@ if (subcommand === 'notify') {
 
 // --- Socket helpers ---
 
+// The directory is Electron's userData dir, which is named after the package
+// name - lowercase, and case-sensitive outside macOS.
 function getSocketPath() {
   if (process.platform === 'darwin') {
-    return path.join(os.homedir(), 'Library/Application Support/ForgeTerm/forgeterm.sock')
+    return path.join(os.homedir(), 'Library/Application Support/forgeterm/forgeterm.sock')
   }
-  return path.join(os.homedir(), '.config/ForgeTerm/forgeterm.sock')
+  return path.join(os.homedir(), '.config/forgeterm/forgeterm.sock')
+}
+
+function isForgeTermRunning() {
+  if (process.platform === 'win32') return false
+  try {
+    execSync('pgrep -i forgeterm', { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+function notReachableError(socketPath) {
+  if (isForgeTermRunning()) {
+    return new Error(
+      `ForgeTerm is running but is not serving ${socketPath}.\n` +
+        'It re-binds the socket every few seconds; if this persists, restart ForgeTerm.'
+    )
+  }
+  return new Error('Could not connect to ForgeTerm. Is it running?')
 }
 
 function sendCommand(payload) {
@@ -65,7 +87,7 @@ function sendCommand(payload) {
 
     client.on('error', (err) => {
       if (err.code === 'ENOENT' || err.code === 'ECONNREFUSED') {
-        reject(new Error('Could not connect to ForgeTerm. Is it running?'))
+        reject(notReachableError(socketPath))
       } else {
         reject(new Error(err.message))
       }

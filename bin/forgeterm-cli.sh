@@ -4,13 +4,14 @@
 
 FORGETERM_VERSION="CLI 2.0"
 
-# Determine socket path
+# Determine socket path. The directory is Electron's userData dir, which is named
+# after the package name - lowercase, and case-sensitive outside macOS.
 if [ -n "$FORGETERM_SOCKET" ]; then
   SOCKET_PATH="$FORGETERM_SOCKET"
 elif [ "$(uname)" = "Darwin" ]; then
-  SOCKET_PATH="$HOME/Library/Application Support/ForgeTerm/forgeterm.sock"
+  SOCKET_PATH="$HOME/Library/Application Support/forgeterm/forgeterm.sock"
 else
-  SOCKET_PATH="$HOME/.config/ForgeTerm/forgeterm.sock"
+  SOCKET_PATH="$HOME/.config/forgeterm/forgeterm.sock"
 fi
 
 # ========== Helpers ==========
@@ -28,7 +29,12 @@ send_to_socket() {
   local json="$1"
 
   if [ ! -S "$SOCKET_PATH" ]; then
-    echo "Could not connect to ForgeTerm. Is it running?" >&2
+    if pgrep -i forgeterm >/dev/null 2>&1; then
+      echo "ForgeTerm is running but is not serving $SOCKET_PATH." >&2
+      echo "It re-binds the socket every few seconds; if this persists, restart ForgeTerm." >&2
+    else
+      echo "Could not connect to ForgeTerm. Is it running?" >&2
+    fi
     return 1
   fi
 
