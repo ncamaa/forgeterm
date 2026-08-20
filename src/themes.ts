@@ -154,8 +154,14 @@ export const TERMINAL_THEMES: Record<string, TerminalColors> = {
   aurora: term('#102831', '#c2e5dd', '#2ee6ac', [
     '#163035', '#ff7f7f', '#3ff0b0', '#ffe07a', '#63c7ff', '#b39bff', '#4fe6e6', '#e0f5f0',
   ]),
+  jade: term('#0f2a24', '#c4e6dc', '#0ed9a5', [
+    '#16332c', '#ff7f7f', '#2fe3ad', '#ffd980', '#5fc0ff', '#a99bff', '#3fe0d8', '#e2f4ee',
+  ]),
   forest: term('#17291c', '#c3dcbc', '#4ade80', [
     '#1e3324', '#ef6f5e', '#5bdc7d', '#f2cd4f', '#58a9e6', '#b07fd0', '#3ecfae', '#e9f3e6',
+  ]),
+  meadow: term('#1b2a17', '#cfe3c2', '#7ee356', [
+    '#22331d', '#ff8272', '#7ee356', '#ecd75a', '#6bb6f0', '#bb92e0', '#4dd4b4', '#e8f2e0',
   ]),
   citrus: term('#212916', '#dde7c6', '#b8e63c', [
     '#29321a', '#ff7a6a', '#a8e34a', '#f5d94a', '#6fb8ff', '#c79bff', '#5fdec6', '#f0f5e2',
@@ -178,6 +184,9 @@ export const TERMINAL_THEMES: Record<string, TerminalColors> = {
   violet: term('#1e1737', '#d8d0f5', '#a78bfa', [
     '#241c42', '#ff8598', '#7de3a8', '#ffd97d', '#8ab4ff', '#c79bff', '#6ee0e6', '#ece6ff',
   ]),
+  indigo: term('#171b3a', '#d0d5f5', '#7c8cf8', [
+    '#1d2246', '#ff8a9c', '#68dfa2', '#f0cf74', '#7c8cf8', '#a996ff', '#63cfe8', '#e4e8ff',
+  ]),
   abyss: term('#15193d', '#ccd3f5', '#818cf8', [
     '#1a1f47', '#ff8093', '#6fe0a5', '#ffd36e', '#7da2ff', '#b48aff', '#5fd6ee', '#e2e8ff',
   ]),
@@ -189,6 +198,12 @@ export const TERMINAL_THEMES: Record<string, TerminalColors> = {
   ]),
   neon: term('#1d1032', '#f2d9ff', '#ff4fd8', [
     '#26123f', '#ff4d6d', '#3bf0a5', '#ffe14d', '#4fc3ff', '#ff5fe0', '#38f0ec', '#ffe9ff',
+  ]),
+  codama: term('#141210', '#e8ded6', '#e96d2d', [
+    '#1c1917', '#f0664c', '#8fc96b', '#e9a13b', '#6fa8dc', '#c98ae0', '#4fc4b8', '#f5efe9',
+  ]),
+  codamalight: term('#fdfaf7', '#33291f', '#c2521a', [
+    '#4a3f33', '#c23a2b', '#4a7c1f', '#a06a00', '#2563a8', '#8b3d8b', '#0f7a72', '#fffaf5',
   ]),
   frost: term('#eef4fa', '#22303f', '#0284c7', [
     '#33455a', '#d13b3b', '#17864f', '#a97400', '#1d6fd6', '#8b3fc4', '#0d7f96', '#f7fbff',
@@ -265,7 +280,11 @@ const PRESET_SPECS: PresetSpec[] = [
   { id: 'ocean', name: 'Ocean', accent: '#22d3ee', from: [202, 62, 15], to: [184, 62, 28], sidebar: [199, 52, 14], angle: 95, terminalMode: 'ocean' },
   { id: 'aurora', name: 'Aurora', accent: '#2ee6ac', from: [196, 58, 16], to: [152, 54, 27], sidebar: [178, 46, 14], angle: 115, terminalMode: 'aurora' },
   // Greens / yellows
+  // Jade runs green -> blue, the reverse of Aurora's cyan -> green, so the two
+  // read differently despite sitting close on the wheel.
+  { id: 'jade', name: 'Jade', accent: '#0ed9a5', from: [162, 58, 14], to: [205, 64, 27], sidebar: [168, 50, 12], angle: 105, terminalMode: 'jade' },
   { id: 'forest', name: 'Forest', accent: '#4ade80', from: [152, 46, 14], to: [96, 44, 24], sidebar: [145, 40, 13], angle: 110, terminalMode: 'forest' },
+  { id: 'meadow', name: 'Meadow', accent: '#63e04d', from: [112, 46, 15], to: [82, 46, 25], sidebar: [108, 40, 13], angle: 110, terminalMode: 'meadow' },
   { id: 'citrus', name: 'Citrus', accent: '#b8e63c', from: [92, 46, 15], to: [58, 54, 26], sidebar: [85, 40, 14], angle: 110, terminalMode: 'citrus' },
   { id: 'gold', name: 'Gold', accent: '#fbbf24', from: [28, 56, 15], to: [45, 62, 27], sidebar: [34, 46, 14], angle: 100, terminalMode: 'warm' },
   // Warm / reds
@@ -274,12 +293,16 @@ const PRESET_SPECS: PresetSpec[] = [
   { id: 'rose', name: 'Rose', accent: '#ff5c9c', from: [336, 54, 16], to: [352, 52, 28], sidebar: [338, 44, 15], angle: 100, terminalMode: 'rose' },
   // Pinks / purples
   { id: 'bubblegum', name: 'Bubblegum', accent: '#f472d0', from: [302, 56, 16], to: [268, 56, 29], sidebar: [296, 46, 15], angle: 120, terminalMode: 'grape' },
+  { id: 'indigo', name: 'Indigo', accent: '#6366f1', from: [238, 56, 16], to: [222, 58, 28], sidebar: [236, 48, 15], angle: 100, terminalMode: 'indigo' },
   { id: 'lavender', name: 'Lavender', accent: '#a78bfa', from: [252, 52, 17], to: [274, 54, 29], sidebar: [256, 44, 16], angle: 100, terminalMode: 'violet' },
   { id: 'cosmos', name: 'Cosmos', accent: '#c084fc', from: [240, 64, 14], to: [292, 58, 27], sidebar: [248, 52, 14], angle: 135, terminalMode: 'abyss' },
   { id: 'synthwave', name: 'Synthwave', accent: '#ff3fd8', from: [268, 72, 16], to: [192, 78, 26], sidebar: [270, 58, 13], angle: 125, terminalMode: 'neon' },
   // Neutrals
   { id: 'nord', name: 'Nord', accent: '#88c0d0', from: [220, 17, 24], to: [219, 21, 34], sidebar: [220, 16, 22], angle: 100, terminalMode: 'nord' },
   { id: 'graphite', name: 'Graphite', accent: '#b0b8c4', from: [220, 6, 18], to: [220, 7, 28], sidebar: [220, 5, 17], angle: 100, terminalMode: 'mono' },
+  // Codama brand: the same orange over near-black and near-white chrome.
+  { id: 'codama', name: 'Codama', accent: '#e96d2d', from: [20, 10, 8], to: [24, 50, 22], sidebar: [22, 9, 9], angle: 105, terminalMode: 'codama' },
+  { id: 'codamalight', name: 'Codama Light', accent: '#d4551a', from: [30, 55, 97], to: [22, 65, 88], sidebar: [30, 30, 97], angle: 105, terminalMode: 'codamalight' },
   // Light
   { id: 'latte', name: 'Latte', accent: '#e2691a', from: [32, 48, 92], to: [18, 44, 85], sidebar: [30, 38, 94], angle: 105, terminalMode: 'latte' },
   { id: 'arctic', name: 'Arctic', accent: '#0ea5e9', from: [205, 48, 94], to: [193, 42, 86], sidebar: [205, 40, 96], angle: 105, terminalMode: 'frost' },
@@ -295,8 +318,8 @@ export const PRESET_THEMES: PresetTheme[] = PRESET_SPECS.map((spec) => ({
 
 /** Vivid accents for the "generate from color" quick picks. */
 export const ACCENT_SWATCHES = [
-  '#4c9eff', '#22d3ee', '#2ee6ac', '#4ade80', '#b8e63c', '#fbbf24',
-  '#ff8a3d', '#ff5f52', '#ff5c9c', '#f472d0', '#a78bfa', '#c084fc',
+  '#4c9eff', '#22d3ee', '#2ee6ac', '#0ed9a5', '#4ade80', '#63e04d', '#b8e63c', '#fbbf24',
+  '#ff8a3d', '#ff5f52', '#ff5c9c', '#f472d0', '#6366f1', '#a78bfa', '#c084fc',
   '#ff3fd8', '#88c0d0', '#b0b8c4', '#e2691a',
 ]
 

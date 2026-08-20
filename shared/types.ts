@@ -64,6 +64,17 @@ export interface RecentProject {
   isOpen?: boolean
 }
 
+/**
+ * A theme owned by a workspace. Overlaid onto every member project's config so
+ * all projects in a workspace share one identity - `window.emoji` stays
+ * per-project so siblings remain individually recognizable.
+ */
+export interface WorkspaceTheme {
+  window: NonNullable<ForgeTermConfig['window']>
+  theme: NonNullable<ForgeTermConfig['theme']>
+  terminalTheme: string
+}
+
 export interface Workspace {
   name: string
   projects: string[] // project paths
@@ -72,6 +83,9 @@ export interface Workspace {
   screenPrefs?: Record<string, number[]> // key = display count, value = display indices to use
   emoji?: string
   description?: string
+  // Shared theme for every project in this workspace. Overrides per-project
+  // `.forgeterm.json` window/terminal colors.
+  theme?: WorkspaceTheme
   accentColor?: string
   defaultCommand?: string
   // Custom Claude CLI command name for projects in this workspace (e.g. "claude-hsp").
@@ -213,6 +227,11 @@ export interface TranscriptMatch {
   preview: string
   /** Match offset within `preview`. */
   col: number
+  /**
+   * Length of the matched text at `col`. Equals the query length for a phrase
+   * match; for a multi-term query it is the length of the term that matched.
+   */
+  matchLength: number
   /** Line index in the JSONL transcript (ordering / identity). */
   msgIndex: number
   timestamp?: number
@@ -328,6 +347,8 @@ export interface ForgeTermAPI {
   getRecentProjects: () => Promise<RecentProject[]>
   openProject: (projectPath: string) => Promise<void>
   getWorkspaces: () => Promise<Workspace[]>
+  /** The workspace owning this window's project theme, if any. */
+  getProjectWorkspace: () => Promise<{ name: string; projectCount: number } | null>
   setProjectWorkspace: (projectPath: string, workspaceName: string) => Promise<void>
   removeProjectFromWorkspace: (projectPath: string) => Promise<void>
   openWorkspace: (workspaceName: string, arrange: boolean) => Promise<void>

@@ -1,32 +1,33 @@
 {
   "theme": {
-    "background": "#0f172a",
-    "foreground": "#e2e8f0",
-    "cursor": "#a78bfa",
-    "selection": "rgba(56, 189, 248, 0.3)",
-    "black": "#1e293b",
-    "red": "#f87171",
-    "green": "#4ade80",
-    "yellow": "#facc15",
-    "blue": "#60a5fa",
-    "magenta": "#c084fc",
-    "cyan": "#22d3ee",
-    "white": "#f1f5f9"
+    "background": "#1d2025",
+    "foreground": "#d5d9df",
+    "cursor": "#b0b8c4",
+    "selection": "rgba(199, 204, 212, 0.28)",
+    "black": "#23262c",
+    "red": "#e8858a",
+    "green": "#97cf9a",
+    "yellow": "#ddc179",
+    "blue": "#92b3d9",
+    "magenta": "#bd9bd0",
+    "cyan": "#86c9c9",
+    "white": "#eceff3"
   },
   "font": {
     "family": "JetBrains Mono, Menlo, Monaco, monospace",
     "size": 13
   },
   "window": {
-    "accentColor": "#a78bfa",
-    "titlebarBackground": "#171328",
-    "titlebarBackgroundEnd": "#211d3c",
-    "titlebarForeground": "#a898c0",
-    "sidebarBackground": "#18152a",
-    "sidebarForeground": "#a898c0",
-    "buttonBackground": "#2a2248",
-    "emoji": "\ud83d\udc9a",
-    "themeName": "lavender"
+    "accentColor": "#b0b8c4",
+    "titlebarBackground": "#2b2d31",
+    "titlebarBackgroundEnd": "#42464c",
+    "titlebarForeground": "#cad0d8",
+    "sidebarBackground": "#292b2e",
+    "sidebarForeground": "#b3bbc6",
+    "buttonBackground": "#404754",
+    "gradientAngle": 100,
+    "themeName": "graphite",
+    "emoji": "💚"
   },
   "sessions": [
     {
@@ -45,8 +46,8 @@
       "autoStart": true
     }
   ],
-  "terminalTheme": "dark",
-  "projectName": "Forge Term  \ud83d\udcbb",
+  "terminalTheme": "mono",
+  "projectName": "Forge Term  💻",
   "claudeResumeArgs": [
     "--dangerously-skip-permissions"
   ]

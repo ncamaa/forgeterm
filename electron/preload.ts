@@ -103,6 +103,9 @@ const api: ForgeTermAPI = {
   getWorkspaces: () =>
     ipcRenderer.invoke('workspaces:get'),
 
+  getProjectWorkspace: () =>
+    ipcRenderer.invoke('workspaces:for-project'),
+
   setProjectWorkspace: (projectPath: string, workspaceName: string) =>
     ipcRenderer.invoke('workspaces:set-project', projectPath, workspaceName),
 

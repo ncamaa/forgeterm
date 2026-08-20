@@ -211,6 +211,7 @@ export function ThemeEditor({ config, onSave, onCancel, onPreview }: ThemeEditor
   const [favorites, setFavorites] = useState<FavoriteTheme[]>([])
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [saveName, setSaveName] = useState('')
+  const [workspace, setWorkspace] = useState<{ name: string; projectCount: number } | null>(null)
   const saveInputRef = useRef<HTMLInputElement>(null)
 
   // Custom color state
@@ -227,6 +228,11 @@ export function ThemeEditor({ config, onSave, onCancel, onPreview }: ThemeEditor
   // Load favorites on mount
   useEffect(() => {
     window.forgeterm.getFavoriteThemes().then(setFavorites)
+  }, [])
+
+  // A workspace owns the theme for all its projects, so say so before the user edits.
+  useEffect(() => {
+    window.forgeterm.getProjectWorkspace().then(setWorkspace)
   }, [])
 
   // Load from existing config
@@ -383,7 +389,12 @@ export function ThemeEditor({ config, onSave, onCancel, onPreview }: ThemeEditor
     <div className="modal-overlay" onClick={onCancel}>
       <div className="modal theme-editor-modal" onClick={(e) => e.stopPropagation()} style={cardVars(activeTheme.accentColor)}>
         <div className="theme-editor-head">
-          <h3>Customize Theme</h3>
+          <h3>{workspace ? `Theme for ${workspace.name}` : 'Customize Theme'}</h3>
+          {workspace && (
+            <div className="theme-editor-scope">
+              Shared by all {workspace.projectCount} projects in this workspace. The emoji stays per-project.
+            </div>
+          )}
           <MiniPreview windowTheme={activeTheme} terminal={terminalTheme} />
         </div>
 
@@ -567,7 +578,7 @@ export function ThemeEditor({ config, onSave, onCancel, onPreview }: ThemeEditor
             }}
             onClick={handleSave}
           >
-            Apply Theme
+            {workspace ? `Apply to ${workspace.projectCount} Projects` : 'Apply Theme'}
           </button>
         </div>
       </div>

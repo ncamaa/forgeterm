@@ -653,7 +653,7 @@ else:
     update)
       shift
       local name="$1"
-      if [ -z "$name" ]; then echo "Usage: ft workspace update <name> [--emoji ..] [--description ..] [--color ..] [--command ..]" >&2; exit 1; fi
+      if [ -z "$name" ]; then echo "Usage: ft workspace update <name> [--emoji ..] [--description ..] [--color ..] [--theme ..] [--command ..]" >&2; exit 1; fi
       shift
       local json="{\"command\":\"workspace-update\",\"name\":$(json_string "$name")"
       while [ $# -gt 0 ]; do
@@ -661,6 +661,7 @@ else:
           --emoji) shift; json+=",\"emoji\":$(json_string "$1")" ;;
           --description) shift; json+=",\"description\":$(json_string "$1")" ;;
           --color) shift; json+=",\"accentColor\":$(json_string "$1")" ;;
+          --theme) shift; json+=",\"theme\":$(json_string "$1")" ;;
           --command) shift; json+=",\"defaultCommand\":$(json_string "$1")" ;;
           --claude-cli) shift; json+=",\"claudeCliName\":$(json_string "$1")" ;;
           --skip-permissions) json+=",\"dangerouslySkipPermissions\":true" ;;
@@ -689,7 +690,8 @@ Commands:
   update <name> [options]              Update workspace metadata
     --emoji "emoji"
     --description "text"
-    --color "#hex"
+    --color "#hex"                     Re-theme the whole workspace from an accent
+    --theme "midnight"                 Re-theme the whole workspace from a preset
     --command "default cmd"
     --claude-cli "claude-hsp"          Claude CLI name for this workspace
     --skip-permissions | --no-skip-permissions

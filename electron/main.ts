@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import { execSync, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { PtyManager } from './ptyManager'
-import type { ForgeTermConfig, RecentProject, Workspace, ImportResult, FavoriteTheme, DetectedEditor, UpdateInfo, SessionTemplate, SessionStatusReport, SavedSession, SavedWindowState, SessionContext, HistoricalSession, SessionHistoryFilter, DashboardState, DashboardProject, DashboardSession, DashboardWorkspace, TranscriptSearchTarget } from '../shared/types'
+import type { ForgeTermConfig, RecentProject, Workspace, WorkspaceTheme, ImportResult, FavoriteTheme, DetectedEditor, UpdateInfo, SessionTemplate, SessionStatusReport, SavedSession, SavedWindowState, SessionContext, HistoricalSession, SessionHistoryFilter, DashboardState, DashboardProject, DashboardSession, DashboardWorkspace, TranscriptSearchTarget } from '../shared/types'
 import { searchTranscripts } from './claudeTranscript'
 import crypto from 'node:crypto'
 import { UpdateManager } from './updater'
@@ -471,11 +471,22 @@ function buildCliHandlers(): Map<string, CommandHandler> {
     if (!ws) return { ok: false, error: `Workspace "${name}" not found` }
     if (p.emoji !== undefined) ws.emoji = p.emoji as string
     if (p.description !== undefined) ws.description = p.description as string
-    if (p.accentColor !== undefined) ws.accentColor = p.accentColor as string
     if (p.defaultCommand !== undefined) ws.defaultCommand = p.defaultCommand as string
     if (p.claudeCliName !== undefined) ws.claudeCliName = (p.claudeCliName as string) || undefined
     if (p.dangerouslySkipPermissions !== undefined) ws.dangerouslySkipPermissions = p.dangerouslySkipPermissions as boolean
+    // Theming: a preset name wins, otherwise a bare accent regenerates the chrome.
+    if (p.theme !== undefined) {
+      const wanted = String(p.theme)
+      const preset = PRESET_THEMES.find(t => t.id === wanted || t.name.toLowerCase() === wanted.toLowerCase())
+      if (!preset) return { ok: false, error: `Theme "${wanted}" not found. Use theme-list to see available themes.` }
+      ws.theme = presetToWorkspaceTheme(preset)
+      ws.accentColor = preset.window.accentColor
+    } else if (p.accentColor !== undefined && p.accentColor !== ws.accentColor) {
+      ws.accentColor = (p.accentColor as string) || undefined
+      ws.theme = ws.accentColor ? accentToWorkspaceTheme(ws.accentColor) : undefined
+    }
     saveWorkspaces(workspaces)
+    if (ws.theme) propagateWorkspaceTheme(ws)
     return { ok: true }
   })
 
@@ -527,6 +538,13 @@ function buildCliHandlers(): Map<string, CommandHandler> {
     const resolved = path.resolve(projectPath)
     const preset = PRESET_THEMES.find(t => t.id === themeName || t.name.toLowerCase() === themeName.toLowerCase())
     if (!preset) return { ok: false, error: `Theme "${themeName}" not found. Use theme-list to see available themes.` }
+    // A themed workspace owns the look, so retarget the whole workspace rather
+    // than writing a project theme that would be overridden on next load.
+    const ws = findWorkspaceForProject(resolved)
+    if (ws?.theme) {
+      setWorkspaceTheme(ws.name, presetToWorkspaceTheme(preset))
+      return { ok: true, data: { appliedTo: `workspace "${ws.name}" (${ws.projects.length} projects)` } }
+    }
     const config = (loadConfig(resolved) || {}) as ForgeTermConfig
     config.window = { ...preset.window, themeName: preset.id }
     config.theme = { ...preset.terminal, cursor: preset.window.accentColor }
@@ -542,8 +560,17 @@ function buildCliHandlers(): Map<string, CommandHandler> {
     if (!projectPath || !themeName) return { ok: false, error: 'Missing projectPath or name' }
     if (!TERMINAL_THEMES[themeName]) return { ok: false, error: `Terminal theme "${themeName}" not found. Available: ${getTerminalThemeNames().join(', ')}` }
     const resolved = path.resolve(projectPath)
+    const ws = findWorkspaceForProject(resolved)
+    if (ws?.theme) {
+      setWorkspaceTheme(ws.name, { ...ws.theme, terminalTheme: themeName, theme: getTerminalTheme(themeName) })
+      return { ok: true, data: { appliedTo: `workspace "${ws.name}" (${ws.projects.length} projects)` } }
+    }
     const config = (loadConfig(resolved) || {}) as ForgeTermConfig
+    const terminal = getTerminalTheme(themeName)
     config.terminalTheme = themeName
+    // The renderer paints from `config.theme`, so the palette has to be
+    // materialized here or setting the name alone changes nothing on screen.
+    config.theme = { ...terminal, cursor: config.window?.accentColor ?? terminal.cursor }
     saveConfig(resolved, config)
     notifyConfigChanged(resolved)
     return { ok: true }
@@ -822,6 +849,101 @@ function setProjectWorkspace(projectPath: string, workspaceName: string) {
   // Remove empty workspaces
   const cleaned = workspaces.filter((ws) => ws.projects.length > 0)
   saveWorkspaces(cleaned)
+  // Joining a themed workspace adopts its theme immediately.
+  if (target.theme) {
+    stampWorkspaceTheme(projectPath, target)
+    notifyConfigChanged(projectPath)
+  }
+}
+
+// --- Workspace theming ---
+//
+// A workspace owns the theme for every project inside it, so all projects in a
+// workspace look identical and different workspaces are told apart at a glance.
+// The workspace theme always wins over the project's own `.forgeterm.json`.
+
+/** The workspace that owns this project's theme, if any. */
+function findWorkspaceForProject(projectPath: string): Workspace | null {
+  if (!projectPath) return null
+  const resolved = path.resolve(projectPath)
+  return loadWorkspaces().find((ws) => ws.projects.includes(resolved)) || null
+}
+
+/** Overlay a workspace theme onto a project config, keeping the project's emoji. */
+function withWorkspaceTheme(config: ForgeTermConfig | null, ws: Workspace | null): ForgeTermConfig {
+  const base = config || {}
+  if (!ws?.theme) return base
+  const emoji = base.window?.emoji
+  return {
+    ...base,
+    window: { ...ws.theme.window, ...(emoji ? { emoji } : {}) },
+    theme: { ...ws.theme.theme },
+    terminalTheme: ws.theme.terminalTheme,
+  }
+}
+
+/** Config as the renderer should see it: project file with the workspace theme applied. */
+function loadEffectiveConfig(projectPath: string): ForgeTermConfig | null {
+  const config = loadConfig(projectPath)
+  const ws = findWorkspaceForProject(projectPath)
+  if (!ws?.theme) return config
+  return withWorkspaceTheme(config, ws)
+}
+
+/** Stamp a workspace's theme into one project's config file. */
+function stampWorkspaceTheme(projectPath: string, ws: Workspace) {
+  if (!ws.theme || !fs.existsSync(projectPath)) return
+  saveConfig(projectPath, withWorkspaceTheme(loadConfig(projectPath), ws))
+}
+
+/** Stamp a workspace's theme into every member project and repaint open windows. */
+function propagateWorkspaceTheme(ws: Workspace) {
+  if (!ws.theme) return
+  for (const projectPath of ws.projects) {
+    stampWorkspaceTheme(projectPath, ws)
+    notifyConfigChanged(projectPath)
+  }
+}
+
+function presetToWorkspaceTheme(preset: (typeof PRESET_THEMES)[number]): WorkspaceTheme {
+  return {
+    window: { ...preset.window, themeName: preset.id },
+    theme: { ...preset.terminal, cursor: preset.window.accentColor },
+    terminalTheme: preset.terminalMode,
+  }
+}
+
+/** Build a workspace theme from a bare accent hex (used by the color field). */
+function accentToWorkspaceTheme(accent: string): WorkspaceTheme {
+  const terminal = getTerminalTheme('dark')
+  terminal.cursor = accent
+  return { window: generateWindowTheme(accent), theme: terminal, terminalTheme: 'dark' }
+}
+
+/** Pull the theme portion out of a project config, ignoring the per-project emoji. */
+function extractTheme(config: ForgeTermConfig): WorkspaceTheme | null {
+  if (!config.window?.accentColor || !config.theme) return null
+  const { emoji: _emoji, ...window } = config.window
+  return { window, theme: config.theme, terminalTheme: config.terminalTheme || 'dark' }
+}
+
+/** Key-order-insensitive compare, so a renderer round-trip isn't seen as an edit. */
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, val) =>
+    val && typeof val === 'object' && !Array.isArray(val)
+      ? Object.fromEntries(Object.entries(val as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)))
+      : val,
+  )
+}
+
+function setWorkspaceTheme(name: string, theme: WorkspaceTheme) {
+  const workspaces = loadWorkspaces()
+  const ws = workspaces.find((w) => w.name === name)
+  if (!ws) return
+  ws.theme = theme
+  ws.accentColor = theme.window.accentColor
+  saveWorkspaces(workspaces)
+  propagateWorkspaceTheme(ws)
 }
 
 function removeProjectFromWorkspace(projectPath: string) {
@@ -1303,6 +1425,14 @@ function readPeacockColor(projectPath: string): string | null {
 }
 
 function autoAssignThemeIfNeeded(projectPath: string) {
+  // A themed workspace owns the look: keep the project file in sync and skip
+  // Peacock / random assignment entirely.
+  const ws = findWorkspaceForProject(projectPath)
+  if (ws?.theme) {
+    stampWorkspaceTheme(projectPath, ws)
+    return
+  }
+
   const config = loadConfig(projectPath)
   // Only apply if no existing window theme
   if (config?.window?.accentColor) return
@@ -2000,7 +2130,13 @@ function setupIpcHandlers() {
   ipcMain.handle('config:get', (event) => {
     const state = getStateForEvent(event)
     if (!state) return null
-    return loadConfig(state.projectPath)
+    return loadEffectiveConfig(state.projectPath)
+  })
+
+  ipcMain.handle('workspaces:for-project', (event) => {
+    const state = getStateForEvent(event)
+    const ws = state ? findWorkspaceForProject(state.projectPath) : null
+    return ws ? { name: ws.name, projectCount: ws.projects.length } : null
   })
 
   ipcMain.handle('project:get-path', (event) => {
@@ -2027,6 +2163,14 @@ function setupIpcHandlers() {
     const state = getStateForEvent(event)
     if (!state) return
     saveConfig(state.projectPath, config)
+    // The theme belongs to the workspace, so a theme edit made from one project
+    // retargets the whole workspace and repaints every sibling.
+    const ws = findWorkspaceForProject(state.projectPath)
+    if (!ws?.theme) return
+    const edited = extractTheme(config)
+    if (edited && canonical(edited) !== canonical(ws.theme)) {
+      setWorkspaceTheme(ws.name, edited)
+    }
   })
 
   ipcMain.handle('dialog:open-folder', async (event) => {
@@ -2412,11 +2556,19 @@ function setupIpcHandlers() {
     if (ws) {
       if (updates.emoji !== undefined) ws.emoji = updates.emoji || undefined
       if (updates.description !== undefined) ws.description = updates.description || undefined
-      if (updates.accentColor !== undefined) ws.accentColor = updates.accentColor || undefined
       if (updates.defaultCommand !== undefined) ws.defaultCommand = updates.defaultCommand || undefined
       if (updates.claudeCliName !== undefined) ws.claudeCliName = updates.claudeCliName || undefined
       if (updates.dangerouslySkipPermissions !== undefined) ws.dangerouslySkipPermissions = updates.dangerouslySkipPermissions
+      // A full theme wins; a bare accent color regenerates the chrome from it.
+      if (updates.theme !== undefined) {
+        ws.theme = updates.theme || undefined
+        ws.accentColor = ws.theme?.window.accentColor
+      } else if (updates.accentColor !== undefined && updates.accentColor !== ws.accentColor) {
+        ws.accentColor = updates.accentColor || undefined
+        ws.theme = ws.accentColor ? accentToWorkspaceTheme(ws.accentColor) : undefined
+      }
       saveWorkspaces(workspaces)
+      if (ws.theme) propagateWorkspaceTheme(ws)
     }
   })
 
