@@ -112,7 +112,8 @@ Drop a `.forgeterm.json` in any project to define startup sessions, themes, and 
 
 | Shortcut | Action |
 |---|---|
-| Cmd+N / Cmd+T | New session |
+| Cmd+N | New session (defaults to Claude) |
+| Cmd+T | New session + search recent sessions |
 | Cmd+1-9 | Switch to session |
 | Cmd+W | Close session |
 | Cmd+F | Find in terminal |

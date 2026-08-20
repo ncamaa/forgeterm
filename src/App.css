@@ -1145,12 +1145,72 @@
   color: #e2e8f0;
 }
 
+/* --- Recent-sessions search (Cmd+T): name + Claude conversation content --- */
+.session-history-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  margin-bottom: 8px;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  color: #64748b;
+}
+
+.session-history-search:focus-within {
+  border-color: var(--accent-color, #38bdf8);
+  color: var(--accent-color, #38bdf8);
+}
+
+.session-history-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #f1f5f9;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.session-history-search input::placeholder {
+  color: #475569;
+}
+
+.session-history-search-clear {
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  background: none;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.session-history-search-clear:hover {
+  color: #e2e8f0;
+}
+
+.session-history-empty {
+  padding: 10px 2px;
+  font-size: 12px;
+  color: #64748b;
+}
+
 .session-history-list {
   display: flex;
   flex-direction: column;
   gap: 4px;
   max-height: 216px;
   overflow-y: auto;
+}
+
+/* Searching shows per-session snippets, so give the list more room. */
+.session-history-list.searching {
+  max-height: 340px;
 }
 
 .session-history-list::-webkit-scrollbar {
@@ -1178,6 +1238,34 @@
 
 .history-btn:hover {
   background: #1e293b;
+}
+
+.history-btn.selected {
+  background: #1e293b;
+}
+
+/* With search snippets the button stacks: header row, title, matches. */
+.history-btn.with-matches {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.history-btn-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.history-btn-info {
+  font-size: 11px;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .history-btn-main {
@@ -2562,6 +2650,15 @@
 
 .theme-editor-head h3 {
   margin: 0 0 14px;
+}
+
+.theme-editor-scope {
+  margin: -8px 0 14px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #94a3b8;
+  border-left: 2px solid var(--accent-color, #38bdf8);
+  padding-left: 9px;
 }
 
 .theme-editor-body {

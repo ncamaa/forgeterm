@@ -8,7 +8,8 @@ A terminal emulator built for multi-project workflows. Open an entire workspace 
 
 | Shortcut | Action |
 |---|---|
-| ⌘N / ⌘T | New session (pick from recent closed sessions) |
+| ⌘N | New session (defaults to a Claude session) |
+| ⌘T | New session, focused on the recent-sessions search |
 | ⌘⇧T | Reopen last closed session |
 | ⌘⇧Y | Theme editor |
 | ⌘, | Project settings |
@@ -97,7 +98,9 @@ Search any session with ⌘F, or every open session at once with ⌘⇧F. Claude
 
 Press ⌘⇧H to browse this project's closed sessions. Filter by name or search inside past conversations, then Resume a Claude session (or Reopen any shell) in one click.
 
-Opening a new session with ⌘T also lists this project's recent closed sessions right in the modal, sorted by when they closed or opened - click any one to reopen it, or ⌘⇧T to reopen the most recent.
+A new session starts Claude by default: the modal comes prefilled with this project's Claude CLI and its permission flags (so an HSP project gets `claude-hsp`), and the newly created session is focused right away. Clear the command field if you just want a plain shell.
+
+Opening a new session with ⌘T also lists this project's recent closed sessions right in the modal, sorted by when they closed or opened - click any one to reopen it, or ⌘⇧T to reopen the most recent. The search box above the list matches session names and titles *and* searches inside each closed Claude conversation, showing the matching lines under each result. Multi-word queries are tried as a phrase first, then as "every word appears somewhere in this conversation". Arrow keys move through the results, Enter reopens the highlighted one.
 
 ### Session Activity Indicators
 

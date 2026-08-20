@@ -269,7 +269,7 @@ export function Sidebar({
           <button
             className="sidebar-quick-add"
             onClick={onQuickSession}
-            title="Quick new shell session"
+            title="New Claude session"
             style={{ borderColor: accentColor + '30', color: accentColor }}
           >
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">

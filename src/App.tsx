@@ -30,6 +30,16 @@ function buildResumeCommand(conversationId: string, launch: ClaudeLaunch): strin
   return [launch.cliName, ...launch.resumeArgs, '--resume', conversationId].join(' ')
 }
 
+// What a brand-new session runs by default: this project's Claude CLI with its
+// permission flags. `cliName` resolves project -> workspace -> "claude", so an
+// HSP project (whose workspace sets claudeCliName) gets "claude-hsp"; the args
+// carry --dangerously-skip-permissions unless the project opted out.
+function buildClaudeCommand(launch: ClaudeLaunch): string {
+  return [launch.cliName, ...launch.resumeArgs].join(' ')
+}
+
+const DEFAULT_SESSION_NAME = 'Claude'
+
 const isDashboard = new URLSearchParams(window.location.search).get('mode') === 'dashboard'
 
 function App() {
@@ -39,6 +49,9 @@ function App() {
   const [config, setConfig] = useState<ForgeTermConfig | null>(null)
   const [claudeLaunch, setClaudeLaunch] = useState<ClaudeLaunch>(DEFAULT_CLAUDE_LAUNCH)
   const [showModal, setShowModal] = useState(false)
+  // Which field the New Session modal focuses on open: Cmd+N goes straight to the
+  // name (Enter creates the default Claude session), Cmd+T lands in the search box.
+  const [modalFocus, setModalFocus] = useState<'name' | 'search'>('name')
   const [showThemeEditor, setShowThemeEditor] = useState(false)
   const [showProjectSettings, setShowProjectSettings] = useState(false)
   const [showProjectSwitcher, setShowProjectSwitcher] = useState(false)
@@ -72,13 +85,19 @@ function App() {
   const sidebarFg = effectiveWin?.sidebarForeground
   const buttonBg = effectiveWin?.buttonBackground
   const emoji = win?.emoji
+  // Default command for every newly created session (see buildClaudeCommand).
+  const claudeStartCommand = buildClaudeCommand(claudeLaunch)
 
-  const createSession = useCallback(async (name: string, command?: string, idle?: boolean) => {
+  const createSession = useCallback(async (name: string, command?: string, idle?: boolean, focus?: boolean) => {
     const id = await window.forgeterm.createSession(name, command, idle)
     if (id) {
       addSession({ id, name, command, running: !idle })
+      // addSession only auto-activates the very first session, so an explicitly
+      // created one has to be switched to on purpose.
+      if (focus) setActive(id)
     }
-  }, [addSession])
+    return id
+  }, [addSession, setActive])
 
   // Drain any sessions queued by the `ft start` CLI for this window and focus the
   // last one. Runs after initial sessions are set up, and whenever main flushes.
@@ -271,10 +290,15 @@ function App() {
     })
   }, [])
 
+  const openNewSessionModal = useCallback((focus: 'name' | 'search' = 'name') => {
+    setModalFocus(focus)
+    setShowModal(true)
+  }, [])
+
   // Listen for menu events
   useEffect(() => {
-    return window.forgeterm.onMenuNewSession(() => setShowModal(true))
-  }, [])
+    return window.forgeterm.onMenuNewSession(() => openNewSessionModal('name'))
+  }, [openNewSessionModal])
 
   useEffect(() => {
     return window.forgeterm.onOpenThemeEditor(() => setShowThemeEditor(true))
@@ -419,10 +443,11 @@ function App() {
         cycleSidebarMode()
       }
 
-      // Cmd+N or Cmd+T: new session
+      // Cmd+N or Cmd+T: new session. Cmd+T is the "recent sessions" entry point,
+      // so it opens the same modal focused on its search box.
       if (mod && !e.shiftKey && (e.key === 'n' || e.key === 't')) {
         e.preventDefault()
-        setShowModal(true)
+        openNewSessionModal(e.key === 't' ? 'search' : 'name')
       }
 
       // Cmd+Shift+Y: theme editor (Cmd+Shift+T now reopens the last closed
@@ -567,11 +592,11 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activeSessionId, setActive, removeSession, cycleSidebarMode, adjustCurrentThemeBrightness])
+  }, [activeSessionId, setActive, removeSession, cycleSidebarMode, adjustCurrentThemeBrightness, openNewSessionModal])
 
   const handleNewSession = useCallback(async (name: string, command?: string, addToStartup?: boolean) => {
     setShowModal(false)
-    await createSession(name, command)
+    await createSession(name, command, false, true)
     if (addToStartup) {
       const currentConfig = config || {}
       const existingSessions = currentConfig.sessions || []
@@ -661,6 +686,9 @@ function App() {
     setShowProjectSettings(false)
     await window.forgeterm.saveConfig(updatedConfig)
     setConfig(updatedConfig)
+    // The CLI name / skip-permissions toggle live here, so re-resolve the launch
+    // settings that new sessions and resumes are built from.
+    setClaudeLaunch(await window.forgeterm.getClaudeLaunch())
     if (updatedConfig.projectName) {
       document.title = updatedConfig.projectName
     } else {
@@ -777,15 +805,9 @@ function App() {
             buttonBackground={buttonBg}
             width={sidebarWidth}
             onWidthChange={handleSidebarWidthChange}
-            onNewSession={() => setShowModal(true)}
-            onQuickSession={async () => {
-              const id = await window.forgeterm.createSession('shell')
-              if (id) {
-                addSession({ id, name: 'shell', running: true })
-                setActive(id)
-              }
-            }}
-            onDuplicateSession={(name, command) => createSession(name, command)}
+            onNewSession={() => openNewSessionModal('name')}
+            onQuickSession={() => createSession(DEFAULT_SESSION_NAME, claudeStartCommand, false, true)}
+            onDuplicateSession={(name, command) => createSession(name, command, false, true)}
             onProjectSettings={() => setShowProjectSettings(true)}
             onThemeEditor={() => setShowThemeEditor(true)}
             onHelp={() => setShowHelp(true)}
@@ -824,7 +846,7 @@ function App() {
           )}
           {sidebarMode === 'hidden' && (
             <div className="floating-actions">
-              <button className="sidebar-action-btn" onClick={() => setShowModal(true)} title="New Session (Cmd+N)" style={{ background: buttonBg, color: sidebarFg }}>
+              <button className="sidebar-action-btn" onClick={() => openNewSessionModal('name')} title="New Session (Cmd+N)" style={{ background: buttonBg, color: sidebarFg }}>
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M8 3v10M3 8h10" /></svg>
               </button>
               <button className="sidebar-action-btn" onClick={() => setShowProjectSettings(true)} title="Project Settings (Cmd+,)" style={{ background: buttonBg, color: sidebarFg }}>
@@ -869,6 +891,9 @@ function App() {
           presets={(config?.sessions || []).map((s) => ({ name: s.name, command: s.command }))}
           projectPath={projectPath}
           openConversationIds={sessions.map((s) => s.conversationId).filter(Boolean) as string[]}
+          defaultName={DEFAULT_SESSION_NAME}
+          defaultCommand={claudeStartCommand}
+          initialFocus={modalFocus}
           onSubmit={handleNewSession}
           onReopen={handleReopenHistorical}
           onCancel={() => setShowModal(false)}

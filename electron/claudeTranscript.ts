@@ -184,44 +184,93 @@ function makePreview(text: string, idx: number, needleLen: number): { preview: s
   return { preview, col: idx - start }
 }
 
-function searchFile(filePath: string, needle: string, limit: number): TranscriptMatch[] {
-  const segments = loadSegments(filePath)
+function toMatch(seg: Segment, idx: number, length: number): TranscriptMatch {
+  const { preview, col } = makePreview(seg.text, idx, length)
+  return {
+    role: seg.role,
+    kind: seg.kind,
+    preview,
+    col,
+    matchLength: length,
+    msgIndex: seg.msgIndex,
+    timestamp: seg.timestamp,
+  }
+}
+
+/** Phrase pass: segments containing the whole query as a substring. */
+function scanPhrase(segments: Segment[], phrase: string, limit: number): TranscriptMatch[] {
   const matches: TranscriptMatch[] = []
   // Scan newest-first so that, when capped, the kept matches are the most recent.
   for (let i = segments.length - 1; i >= 0 && matches.length < limit; i--) {
     const seg = segments[i]
-    const idx = seg.text.toLowerCase().indexOf(needle)
-    if (idx === -1) continue
-    const { preview, col } = makePreview(seg.text, idx, needle.length)
-    matches.push({
-      role: seg.role,
-      kind: seg.kind,
-      preview,
-      col,
-      msgIndex: seg.msgIndex,
-      timestamp: seg.timestamp,
-    })
+    const idx = seg.text.toLowerCase().indexOf(phrase)
+    if (idx !== -1) matches.push(toMatch(seg, idx, phrase.length))
   }
   return matches
 }
 
+// How many candidate segments a term pass collects before it stops adding more
+// (it keeps scanning only to confirm every term appears somewhere).
+const TERM_CANDIDATE_CAP = 60
+
+/**
+ * Term pass (AND semantics): the conversation matches only if EVERY term appears
+ * somewhere in it - not necessarily in the same message. Returns null when some
+ * term is missing, so the caller can drop the conversation entirely. Segments
+ * hitting the most distinct terms are returned first, recency breaking ties.
+ */
+function scanTerms(segments: Segment[], terms: string[], limit: number): TranscriptMatch[] | null {
+  const seen = new Set<string>()
+  const scored: { match: TranscriptMatch; hits: number; order: number }[] = []
+  for (let i = segments.length - 1; i >= 0; i--) {
+    const seg = segments[i]
+    const lower = seg.text.toLowerCase()
+    let first = -1
+    let firstLen = 0
+    let hits = 0
+    for (const term of terms) {
+      const idx = lower.indexOf(term)
+      if (idx === -1) continue
+      hits++
+      seen.add(term)
+      if (first === -1 || idx < first) { first = idx; firstLen = term.length }
+    }
+    if (hits > 0 && scored.length < TERM_CANDIDATE_CAP) {
+      scored.push({ match: toMatch(seg, first, firstLen), hits, order: scored.length })
+    }
+    // Nothing left to learn: every term is confirmed and we have enough previews.
+    if (seen.size === terms.length && scored.length >= TERM_CANDIDATE_CAP) break
+  }
+  if (seen.size < terms.length) return null
+  scored.sort((a, b) => b.hits - a.hits || a.order - b.order)
+  return scored.slice(0, limit).map((s) => s.match)
+}
+
 /**
  * Search the on-disk transcript of each target conversation for `query`
- * (case-insensitive substring). Returns one entry per target that has any match,
- * preserving target order. Targets whose transcript can't be found are skipped.
+ * (case-insensitive). A multi-word query is first tried as an exact phrase; if
+ * that finds nothing, it falls back to requiring every term somewhere in the
+ * conversation. Returns one entry per target that has any match, preserving
+ * target order. Targets whose transcript can't be found are skipped.
  */
 export function searchTranscripts(
   targets: TranscriptSearchTarget[],
   query: string,
   perTargetLimit = 80,
 ): { id: string; matches: TranscriptMatch[] }[] {
-  const needle = query.trim().toLowerCase()
-  if (!needle) return []
+  // Segment text is whitespace-collapsed, so collapse the phrase to match it.
+  const phrase = query.trim().toLowerCase().replace(/\s+/g, ' ')
+  if (!phrase) return []
+  const terms = [...new Set(phrase.split(' ').filter(Boolean))]
   const results: { id: string; matches: TranscriptMatch[] }[] = []
   for (const target of targets) {
     const filePath = resolveTranscriptPath(target.conversationId, target.projectPath)
     if (!filePath) continue
-    const matches = searchFile(filePath, needle, perTargetLimit)
+    const segments = loadSegments(filePath)
+    let matches = scanPhrase(segments, phrase, perTargetLimit)
+    if (matches.length === 0 && terms.length > 1) {
+      matches = scanTerms(segments, terms, perTargetLimit) ?? []
+    }
     if (matches.length) results.push({ id: target.id, matches })
   }
   return results

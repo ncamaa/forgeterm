@@ -159,7 +159,7 @@ export function ProjectHistory({ projectPath, accentColor, openConversationIds, 
                         <span className={`global-search-roletag role-${m.role} kind-${m.kind}`}>
                           {m.role === 'user' ? 'you' : ROLE_LABEL[m.kind] ?? 'claude'}
                         </span>
-                        <Snippet preview={m.preview} col={m.col} length={debounced.length} />
+                        <Snippet preview={m.preview} col={m.col} length={m.matchLength} />
                       </div>
                     ))}
                   </div>

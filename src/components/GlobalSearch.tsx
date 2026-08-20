@@ -51,6 +51,13 @@ const ROLE_LABEL: Record<string, string> = {
   tool_result: 'output',
 }
 
+// Highlight length for a row: transcript matches carry their own (a multi-term
+// query highlights the term that matched, not the whole query); terminal matches
+// always matched the query verbatim.
+function matchLen(m: Match, query: string): number {
+  return m.source === 'transcript' ? m.matchLength : query.length
+}
+
 // Render a one-line preview windowed around the match, with the matched term
 // highlighted. `col` is an index into `preview`.
 function Snippet({ preview, col, length }: { preview: string; col: number; length: number }) {
@@ -256,8 +263,8 @@ export function GlobalSearch({ sessions, accentColor, projectPath, scope, onReve
                       </span>
                     )}
                     {isExpanded
-                      ? <span className="global-search-snippet expanded"><FullSnippet preview={m.preview} col={m.col} length={debounced.length} /></span>
-                      : <Snippet preview={m.preview} col={m.col} length={debounced.length} />}
+                      ? <span className="global-search-snippet expanded"><FullSnippet preview={m.preview} col={m.col} length={matchLen(m, debounced)} /></span>
+                      : <Snippet preview={m.preview} col={m.col} length={matchLen(m, debounced)} />}
                   </button>
                 )
               })}
