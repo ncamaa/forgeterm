@@ -65,6 +65,13 @@ export class NotificationServer {
   // unlinks the path it bound, which now belongs to that instance, so these are
   // abandoned instead and reclaimed when the process exits.
   private abandoned: net.Server[] = []
+  // Electron keeps a native notification's click delegate alive only while its
+  // JS wrapper is reachable. A notification held in a local is collectable the
+  // moment showNotification() returns, and once collected the banner stays on
+  // screen but its 'click' is silently dropped. macOS keeps entries in
+  // Notification Center indefinitely, so this can't be time-boxed - retain the
+  // most recent ones instead.
+  private liveNotifications = new Set<Electron.Notification>()
   private options: NotificationServerOptions
 
   constructor(options: NotificationServerOptions) {
@@ -200,15 +207,39 @@ export class NotificationServer {
       silent: notif.sound === false,
     })
 
+    this.liveNotifications.add(n)
+    while (this.liveNotifications.size > 50) {
+      const oldest = this.liveNotifications.values().next().value
+      if (!oldest) break
+      this.liveNotifications.delete(oldest)
+    }
+    n.on('close', () => this.liveNotifications.delete(n))
+
     n.on('click', () => {
-      if (notif.projectPath) {
-        const win = this.options.findWindowForProject(notif.projectPath)
-        if (win) {
-          if (win.isMinimized()) win.restore()
-          win.focus()
-          if (notif.sessionId) {
-            win.webContents.send('notification:focus-session', notif.sessionId)
-          }
+      const win = notif.projectPath ? this.options.findWindowForProject(notif.projectPath) : null
+      if (!win || win.isDestroyed()) {
+        // No live window: the project was closed since, or the notify came from
+        // outside a ForgeTerm session. Reopen it if we know which, and still
+        // bring the app forward so the click goes somewhere.
+        if (notif.projectPath) this.options.handlers.get('open')?.({ path: notif.projectPath })
+        if (process.platform === 'darwin') app.focus({ steal: true })
+        return
+      }
+      if (win.isMinimized()) win.restore()
+      // macOS will not raise a background app from BrowserWindow.focus() alone:
+      // Electron calls activateIgnoringOtherApps:NO, and focus() is a no-op on a
+      // window that isn't visible. Without this the click did nothing at all.
+      if (process.platform === 'darwin') app.focus({ steal: true })
+      win.show()
+      win.focus()
+      if (notif.sessionId) {
+        const sessionId = notif.sessionId
+        if (win.webContents.isLoading()) {
+          win.webContents.once('did-finish-load', () => {
+            if (!win.isDestroyed()) win.webContents.send('notification:focus-session', sessionId)
+          })
+        } else {
+          win.webContents.send('notification:focus-session', sessionId)
         }
       }
     })
