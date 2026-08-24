@@ -937,7 +937,7 @@ case "${1:-}" in
   open)      shift; cmd_open "$@" ;;
   start)     shift; cmd_start "$@" ;;
   list)      shift; cmd_list "$@" ;;
-  dashboard|panel) cmd_dashboard ;;
+  dashboard|panel) shift; cmd_dashboard "$@" ;;
   open-workspace) shift; cmd_open_workspace "$@" ;;
 
   # Command groups
