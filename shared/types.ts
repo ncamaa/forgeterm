@@ -290,6 +290,12 @@ export interface DashboardState {
   generatedAt: number
 }
 
+/** Small, app-wide UI preferences that aren't tied to a project. */
+export interface UiPrefs {
+  /** How the Control Panel lays projects out. */
+  dashboardView?: 'list' | 'cards'
+}
+
 export interface ForgeTermNotification {
   message: string
   title?: string
@@ -390,6 +396,8 @@ export interface ForgeTermAPI {
   searchTranscripts: (targets: TranscriptSearchTarget[], query: string, perTargetLimit?: number) => Promise<TranscriptSearchResult[]>
   getDashboardState: () => Promise<DashboardState>
   openDashboard: () => Promise<void>
+  getUiPrefs: () => Promise<UiPrefs>
+  setUiPrefs: (patch: Partial<UiPrefs>) => Promise<UiPrefs>
   /** Raise a project window and activate one specific session inside it. */
   focusSessionInProject: (projectPath: string, sessionId: string) => Promise<boolean>
   sessionAction: (projectPath: string, sessionId: string, action: 'stop' | 'restart') => Promise<boolean>

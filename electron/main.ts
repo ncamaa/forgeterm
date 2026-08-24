@@ -856,6 +856,28 @@ function getDashboardState(): DashboardState {
 
 // --- Workspaces ---
 
+// --- App-wide UI preferences (not per project) ---
+
+function getUiPrefsPath(): string {
+  return path.join(app.getPath('userData'), 'ui-prefs.json')
+}
+
+function loadUiPrefs(): import('../shared/types').UiPrefs {
+  try {
+    return JSON.parse(fs.readFileSync(getUiPrefsPath(), 'utf-8'))
+  } catch {
+    return {}
+  }
+}
+
+function saveUiPrefs(prefs: import('../shared/types').UiPrefs): void {
+  try {
+    fs.writeFileSync(getUiPrefsPath(), JSON.stringify(prefs, null, 2), 'utf-8')
+  } catch {
+    // A lost preference is not worth failing a click over.
+  }
+}
+
 function getWorkspacesPath(): string {
   return path.join(app.getPath('userData'), 'workspaces.json')
 }
@@ -2362,6 +2384,14 @@ function setupIpcHandlers() {
 
   ipcMain.handle('dashboard:open', () => {
     createDashboardWindow()
+  })
+
+  ipcMain.handle('ui-prefs:get', () => loadUiPrefs())
+
+  ipcMain.handle('ui-prefs:set', (_event, patch: Partial<import('../shared/types').UiPrefs>) => {
+    const next = { ...loadUiPrefs(), ...patch }
+    saveUiPrefs(next)
+    return next
   })
 
   // Raise a project window AND activate one specific session inside it. Both

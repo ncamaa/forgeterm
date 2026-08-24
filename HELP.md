@@ -107,7 +107,9 @@ Opening a new session with ⌘T also lists this project's recent closed sessions
 
 One board for every project and every session, for when a dozen agents are running at once. Open it with **⌘⇧D**, from **File > Control Panel**, from the menu-bar icon, from the sidebar button, or with `ft dashboard`.
 
-Projects are rows you can collapse; their sessions nest underneath. Everything is ordered by how much it wants from you - sessions waiting on a response first, then working, then idle - and the menu-bar icon carries the same "waiting on you" count, so you can see it without raising a single window.
+Two layouts, switched with the List / Cards toggle in the title bar and remembered between launches. **List** is the dense one: projects are rows you can collapse, their sessions nested underneath. **Cards** gives each project its own tile with its sessions inside, which reads better on a wide screen. Both are ordered the same way and both support every filter and action.
+
+In list view, projects are rows you can collapse; their sessions nest underneath. Everything is ordered by how much it wants from you - sessions waiting on a response first, then working, then idle - and the menu-bar icon carries the same "waiting on you" count, so you can see it without raising a single window.
 
 Each session row shows its state, how long it has been in that state, what it is doing (or, when it is waiting, the actual question or permission Claude is asking for), and its context usage. Click a row to jump straight to that session in its window. The `waiting` / `working` counters at the top double as filters, and the box next to them filters by name or by what a session is doing.
 

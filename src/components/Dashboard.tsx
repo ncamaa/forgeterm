@@ -11,6 +11,7 @@ import { SessionSearch } from './SessionSearch'
  */
 
 type Filter = 'all' | 'waiting' | 'working'
+type View = 'list' | 'cards'
 
 /** Sort weight for a session: lower sorts first. */
 function sessionRank(s: DashboardSession): number {
@@ -69,11 +70,7 @@ function SessionRow({
   onAction: (project: DashboardProject, session: DashboardSession, action: 'stop' | 'restart') => void
 }) {
   const waiting = session.running && session.activityStatus === 'unread'
-  // What the session wants: the Claude notification text when it is waiting,
-  // otherwise whatever `ft info` last reported it was doing.
-  const detail = waiting
-    ? (session.attentionMessage ?? session.info?.actionItem ?? 'Waiting for your response')
-    : (session.info?.lastAction ?? session.info?.title ?? session.info?.summary ?? '')
+  const detail = sessionDetail(session)
 
   return (
     <div
@@ -121,6 +118,133 @@ function SessionRow({
           </button>
         )}
       </span>
+    </div>
+  )
+}
+
+/** The one-line "what is this session doing" text, shared by both views. */
+function sessionDetail(session: DashboardSession): string {
+  if (session.running && session.activityStatus === 'unread') {
+    return session.attentionMessage ?? session.info?.actionItem ?? 'Waiting for your response'
+  }
+  return session.info?.lastAction ?? session.info?.title ?? session.info?.summary ?? ''
+}
+
+function ProjectCard({
+  project,
+  now,
+  onFocusProject,
+  onFocusSession,
+  onSessionAction,
+  onNewSession,
+  onCloseProject,
+}: {
+  project: DashboardProject
+  now: number
+  onFocusProject: (p: DashboardProject) => void
+  onFocusSession: (p: DashboardProject, s: DashboardSession) => void
+  onSessionAction: (p: DashboardProject, s: DashboardSession, action: 'stop' | 'restart') => void
+  onNewSession: (p: DashboardProject) => void
+  onCloseProject: (p: DashboardProject) => void
+}) {
+  const waiting = project.sessions.filter((s) => s.running && s.activityStatus === 'unread').length
+  const working = project.sessions.filter((s) => s.running && s.activityStatus === 'working').length
+  const sorted = [...project.sessions].sort(
+    (a, b) => sessionRank(a) - sessionRank(b) || (b.statusChangedAt ?? 0) - (a.statusChangedAt ?? 0),
+  )
+
+  return (
+    <div className={`cp-card${waiting > 0 ? ' has-waiting' : ''}`}>
+      <div className="cp-card-head">
+        <button
+          className="cp-card-title"
+          style={project.accentColor ? { color: project.accentColor } : undefined}
+          onClick={() => onFocusProject(project)}
+          title={project.isOpen ? `Focus ${project.name}` : `Open ${project.name}`}
+        >
+          {project.emoji && <span className="cp-project-emoji">{project.emoji}</span>}
+          <span className="cp-card-name">{project.name}</span>
+        </button>
+        <span className="cp-card-actions">
+          <button
+            className="cp-icon-btn"
+            title={`New Claude session in ${project.name}`}
+            onClick={() => onNewSession(project)}
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M8 3v10M3 8h10" />
+            </svg>
+          </button>
+          {project.isOpen && (
+            <button
+              className="cp-icon-btn"
+              title={`Close the ${project.name} window`}
+              onClick={() => onCloseProject(project)}
+            >
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                <path d="M4 4l8 8M12 4l-8 8" />
+              </svg>
+            </button>
+          )}
+        </span>
+      </div>
+
+      <div className="cp-card-meta">
+        {project.workspace && <span className="cp-tag cp-tag-ws">{project.workspace}</span>}
+        {waiting > 0 && <span className="cp-pill cp-pill-waiting">{waiting} waiting</span>}
+        {working > 0 && <span className="cp-pill cp-pill-working">{working} working</span>}
+        {project.isOpen && waiting === 0 && working === 0 && (
+          <span className="cp-muted">{project.sessions.length || 'no'} session{project.sessions.length === 1 ? '' : 's'}</span>
+        )}
+        {!project.isOpen && <span className="cp-muted">click the name to open</span>}
+      </div>
+
+      {sorted.length > 0 && (
+        <div className="cp-card-sessions">
+          {sorted.map((s) => {
+            const isWaiting = s.running && s.activityStatus === 'unread'
+            const detail = sessionDetail(s)
+            return (
+              <div
+                key={s.id}
+                className={`cp-card-session${isWaiting ? ' waiting' : ''}${s.isActive ? ' active' : ''}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => onFocusSession(project, s)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onFocusSession(project, s) } }}
+                title="Jump to this session"
+              >
+                <div className="cp-card-session-top">
+                  <StatusDot session={s} />
+                  <span className="cp-session-name">{s.name}</span>
+                  {!s.running && <span className="cp-tag cp-tag-stopped">stopped</span>}
+                  <span className="cp-card-session-right">
+                    {s.contextPercent != null && (
+                      <span className={`cp-context${s.contextPercent >= 80 ? ' high' : ''}`}>{s.contextPercent}%</span>
+                    )}
+                    <span
+                      className="cp-cell-when"
+                      title={s.statusChangedAt ? absoluteTime(s.statusChangedAt) : undefined}
+                    >
+                      {s.statusChangedAt ? elapsed(s.statusChangedAt, now) : ''}
+                    </span>
+                    <button
+                      className="cp-icon-btn"
+                      title={s.running ? 'Stop this session' : 'Restart this session'}
+                      onClick={(e) => { e.stopPropagation(); onSessionAction(project, s, s.running ? 'stop' : 'restart') }}
+                    >
+                      {s.running
+                        ? <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><rect x="3.5" y="3.5" width="9" height="9" rx="1.5" /></svg>
+                        : <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M4 3l9 5-9 5z" /></svg>}
+                    </button>
+                  </span>
+                </div>
+                {detail && <div className="cp-card-session-detail" title={detail}>{detail}</div>}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -238,12 +362,22 @@ export function Dashboard() {
   const [query, setQuery] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [showClosed, setShowClosed] = useState(false)
+  const [view, setView] = useState<View>('list')
   // Ticks the relative times forward between pushes from main.
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
     window.forgeterm.getDashboardState().then(setState)
     return window.forgeterm.onDashboardStateChanged(setState)
+  }, [])
+
+  useEffect(() => {
+    window.forgeterm.getUiPrefs().then((p) => { if (p.dashboardView) setView(p.dashboardView) })
+  }, [])
+
+  const changeView = useCallback((next: View) => {
+    setView(next)
+    window.forgeterm.setUiPrefs({ dashboardView: next })
   }, [])
 
   useEffect(() => {
@@ -366,6 +500,31 @@ export function Dashboard() {
           <span className="cp-chip cp-chip-static">{sessionCount} sessions · {openProjects.length} projects</span>
         </div>
         <div className="cp-titlebar-right">
+          <div className="cp-viewtoggle" role="group" aria-label="Layout">
+            <button
+              className={view === 'list' ? 'active' : ''}
+              onClick={() => changeView('list')}
+              title="List: collapsible rows, densest view"
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
+                <path d="M2 4h12M2 8h12M2 12h12" />
+              </svg>
+              <span>List</span>
+            </button>
+            <button
+              className={view === 'cards' ? 'active' : ''}
+              onClick={() => changeView('cards')}
+              title="Cards: one tile per project"
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1.2" />
+                <rect x="9" y="1.5" width="5.5" height="5.5" rx="1.2" />
+                <rect x="1.5" y="9" width="5.5" height="5.5" rx="1.2" />
+                <rect x="9" y="9" width="5.5" height="5.5" rx="1.2" />
+              </svg>
+              <span>Cards</span>
+            </button>
+          </div>
           <input
             className="cp-search"
             type="text"
@@ -382,16 +541,16 @@ export function Dashboard() {
         </div>
       </div>
 
-      <div className="cp-head cp-row">
+      {view === 'list' && <div className="cp-head cp-row">
         <span className="cp-cell cp-cell-status" />
         <span className="cp-cell cp-cell-name">Project / session</span>
         <span className="cp-cell cp-cell-detail">What's happening</span>
         <span className="cp-cell cp-cell-when">For</span>
         <span className="cp-cell cp-cell-context">Ctx</span>
         <span className="cp-cell cp-cell-actions" />
-      </div>
+      </div>}
 
-      <div className="cp-body">
+      <div className={`cp-body${view === 'cards' ? ' cards' : ''}`}>
         {visible.length === 0 && (
           <div className="cp-empty">
             {openProjects.length === 0
@@ -402,39 +561,73 @@ export function Dashboard() {
           </div>
         )}
 
-        {visible.map((p) => (
-          <ProjectGroup
-            key={p.path}
-            project={p}
-            now={now}
-            collapsed={!forceOpen && collapsed.has(p.path)}
-            onToggle={toggle}
-            onFocusProject={focusProject}
-            onFocusSession={focusSession}
-            onSessionAction={sessionAction}
-            onNewSession={newSession}
-            onCloseProject={closeProject}
-          />
-        ))}
-
-        {closedProjects.length > 0 && (
-          <div className="cp-closed">
-            <button className="cp-closed-toggle" onClick={() => setShowClosed((v) => !v)}>
-              {showClosed ? '▾' : '▸'} {closedProjects.length} closed project{closedProjects.length === 1 ? '' : 's'}
-            </button>
-            {showClosed && closedProjects.map((p) => (
-              <ProjectGroup
+        {view === 'list' ? (
+          visible.map((p) => (
+            <ProjectGroup
+              key={p.path}
+              project={p}
+              now={now}
+              collapsed={!forceOpen && collapsed.has(p.path)}
+              onToggle={toggle}
+              onFocusProject={focusProject}
+              onFocusSession={focusSession}
+              onSessionAction={sessionAction}
+              onNewSession={newSession}
+              onCloseProject={closeProject}
+            />
+          ))
+        ) : (
+          <div className="cp-grid">
+            {visible.map((p) => (
+              <ProjectCard
                 key={p.path}
                 project={p}
                 now={now}
-                collapsed
-                onToggle={() => focusProject(p)}
                 onFocusProject={focusProject}
                 onFocusSession={focusSession}
                 onSessionAction={sessionAction}
                 onNewSession={newSession}
                 onCloseProject={closeProject}
               />
+            ))}
+          </div>
+        )}
+
+        {closedProjects.length > 0 && (
+          <div className="cp-closed">
+            <button className="cp-closed-toggle" onClick={() => setShowClosed((v) => !v)}>
+              {showClosed ? '▾' : '▸'} {closedProjects.length} closed project{closedProjects.length === 1 ? '' : 's'}
+            </button>
+            {showClosed && (view === 'list' ? (
+              closedProjects.map((p) => (
+                <ProjectGroup
+                  key={p.path}
+                  project={p}
+                  now={now}
+                  collapsed
+                  onToggle={() => focusProject(p)}
+                  onFocusProject={focusProject}
+                  onFocusSession={focusSession}
+                  onSessionAction={sessionAction}
+                  onNewSession={newSession}
+                  onCloseProject={closeProject}
+                />
+              ))
+            ) : (
+              <div className="cp-grid">
+                {closedProjects.map((p) => (
+                  <ProjectCard
+                    key={p.path}
+                    project={p}
+                    now={now}
+                    onFocusProject={focusProject}
+                    onFocusSession={focusSession}
+                    onSessionAction={sessionAction}
+                    onNewSession={newSession}
+                    onCloseProject={closeProject}
+                  />
+                ))}
+              </div>
             ))}
           </div>
         )}

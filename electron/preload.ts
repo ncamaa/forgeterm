@@ -166,6 +166,12 @@ const api: ForgeTermAPI = {
   openDashboard: () =>
     ipcRenderer.invoke('dashboard:open'),
 
+  getUiPrefs: () =>
+    ipcRenderer.invoke('ui-prefs:get'),
+
+  setUiPrefs: (patch: Partial<import('../shared/types').UiPrefs>) =>
+    ipcRenderer.invoke('ui-prefs:set', patch),
+
   focusSessionInProject: (projectPath: string, sessionId: string) =>
     ipcRenderer.invoke('dashboard:focus-session', projectPath, sessionId),
 

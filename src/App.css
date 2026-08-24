@@ -3533,6 +3533,15 @@
   .cp-titlebar { gap: 10px; padding-left: 76px; }
 }
 
+/* Tightest usable width: the toggle drops to icons and the filter box shrinks
+   rather than pushing the search button off the edge. */
+@media (max-width: 760px) {
+  .cp-viewtoggle button { padding: 4px 7px; }
+  .cp-viewtoggle button span { display: none; }
+  .cp-search { flex: 1 1 80px; }
+  .cp-titlebar { gap: 8px; }
+}
+
 @media (max-width: 700px) {
   .cp-row { grid-template-columns: 24px minmax(110px, 0.9fr) minmax(0, 1.6fr) 44px 60px; }
   .cp-cell-context { display: none; }
@@ -3701,6 +3710,141 @@
   50% { box-shadow: 0 0 0 5px rgba(248, 113, 113, 0); opacity: 0.75; }
 }
 
+/* --- Layout toggle: list vs cards --- */
+.cp-viewtoggle {
+  display: flex;
+  background: #0b1424;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.cp-viewtoggle button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.cp-viewtoggle button:hover { color: #cbd5e1; }
+.cp-viewtoggle button.active { background: #1e293b; color: #f1f5f9; }
+
+/* --- Cards layout --- */
+.cp-body.cards { padding: 14px; }
+
+.cp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.cp-card {
+  background: #0f1a2e;
+  border: 1px solid #1e293b;
+  border-radius: 9px;
+  padding: 11px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cp-card.has-waiting {
+  border-color: rgba(248, 113, 113, 0.35);
+  box-shadow: inset 3px 0 0 #f87171;
+}
+
+.cp-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cp-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: #f1f5f9;
+  cursor: pointer;
+}
+
+.cp-card-title:hover { text-decoration: underline; }
+
+.cp-card-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cp-card-actions { display: flex; gap: 2px; flex-shrink: 0; }
+
+.cp-card-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.cp-card-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cp-card-session {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #0b1424;
+  border: 1px solid transparent;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.cp-card-session:hover { background: #16233c; border-color: #334155; }
+.cp-card-session.waiting { background: rgba(248, 113, 113, 0.08); }
+.cp-card-session.waiting:hover { background: rgba(248, 113, 113, 0.14); }
+.cp-card-session.active .cp-session-name { color: #38bdf8; }
+
+.cp-card-session-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cp-card-session-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.cp-card-session-detail {
+  margin-top: 3px;
+  font-size: 11px;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* --- Buttons, empty state, closed projects --- */
 .cp-icon-btn {
   display: flex;
@@ -3726,6 +3870,9 @@
 }
 
 .cp-closed { margin-top: 10px; }
+.cp-body.cards .cp-closed { margin-top: 18px; }
+.cp-body.cards .cp-closed-toggle { padding-left: 0; padding-right: 0; }
+.cp-body.cards .cp-grid { margin-top: 10px; }
 
 .cp-closed-toggle {
   display: block;
