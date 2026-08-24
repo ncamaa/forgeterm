@@ -291,6 +291,18 @@ export function Sidebar({
         </button>
         <button
           className="sidebar-action-btn"
+          onClick={() => window.forgeterm.openDashboard()}
+          title="Control Panel - all projects & sessions (Cmd+Shift+D)"
+          style={{ background: btnBg, color: sidebarFg }}
+        >
+          {/* Stacked rows = the board */}
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+            <rect x="2" y="2.5" width="12" height="11" rx="2" />
+            <path d="M2 6h12M6 6v7.5" />
+          </svg>
+        </button>
+        <button
+          className="sidebar-action-btn"
           onClick={onProjectSettings}
           title="Project Settings (Cmd+,)"
           style={{ background: btnBg, color: sidebarFg }}

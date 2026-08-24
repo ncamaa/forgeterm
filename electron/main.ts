@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import { execSync, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { PtyManager } from './ptyManager'
-import type { ForgeTermConfig, RecentProject, Workspace, WorkspaceTheme, ImportResult, FavoriteTheme, DetectedEditor, UpdateInfo, SessionTemplate, SessionStatusReport, SavedSession, SavedWindowState, SessionContext, HistoricalSession, SessionHistoryFilter, DashboardState, DashboardProject, DashboardSession, DashboardWorkspace, TranscriptSearchTarget } from '../shared/types'
+import type { ForgeTermConfig, RecentProject, Workspace, WorkspaceTheme, ImportResult, FavoriteTheme, DetectedEditor, UpdateInfo, SessionTemplate, SessionStatusReport, SavedSession, SavedWindowState, SessionContext, SessionActivityStatus, HistoricalSession, SessionHistoryFilter, DashboardState, DashboardProject, DashboardSession, DashboardWorkspace, TranscriptSearchTarget } from '../shared/types'
 import { searchTranscripts } from './claudeTranscript'
 import crypto from 'node:crypto'
 import { UpdateManager } from './updater'
@@ -64,6 +64,33 @@ interface WindowActivityInfo {
   sessions: SessionStatusReport[]
 }
 const windowActivities = new Map<number, WindowActivityInfo>()
+
+/**
+ * Per-session signals the Control Panel needs but that no single source owns:
+ * when the status last changed (so it can say "waiting 4m") and, for a session
+ * waiting on you, what it is waiting for. Every status - hook-driven or from the
+ * renderer's PTY heuristic - passes through `activity:report`, so stamping the
+ * change here catches both. Entries are dropped when their window closes.
+ */
+interface SessionSignal {
+  status: SessionActivityStatus
+  changedAt: number
+  attentionMessage?: string
+}
+const sessionSignals = new Map<string, SessionSignal>()
+
+// Record a status for a session, stamping changedAt only when it actually
+// changes so "waiting 4m" measures the wait, not the last poll.
+function trackSessionStatus(sessionId: string, status: SessionActivityStatus): void {
+  const prev = sessionSignals.get(sessionId)
+  if (prev && prev.status === status) return
+  sessionSignals.set(sessionId, {
+    status,
+    changedAt: Date.now(),
+    // The reason a session is waiting only survives while it is still waiting.
+    attentionMessage: status === 'unread' ? prev?.attentionMessage : undefined,
+  })
+}
 
 // Sessions requested via `ft start`, keyed by resolved project path. The renderer
 // drains its window's queue on load / when opened / when flushed, so this works
@@ -208,8 +235,16 @@ function buildCliHandlers(): Map<string, CommandHandler> {
     const clamped = Math.max(0, Math.min(100, percent))
     const win = findWindowForProject(projectPath)
     if (win && !win.isDestroyed()) {
+      // Persist onto the session too: the renderer store is per-window, so the
+      // Control Panel (its own window) can only read what the PTY session holds.
+      const state = windowStates.get(win.id)
+      const existing = state?.ptyManager.getSession(sessionId)
+      if (existing?.info) {
+        state?.ptyManager.setSessionInfo(sessionId, { ...existing.info, contextPercent: clamped })
+      }
       win.webContents.send('session:context-updated', sessionId, clamped)
     }
+    pushDashboardState()
     return { ok: true }
   })
 
@@ -234,14 +269,29 @@ function buildCliHandlers(): Map<string, CommandHandler> {
     const projectPath = p.projectPath as string
     const sessionId = p.sessionId as string
     const status = p.status as string
+    const message = typeof p.message === 'string' ? p.message.trim() : ''
     const valid = ['working', 'done', 'attention', 'idle']
     if (!projectPath || !sessionId || !valid.includes(status)) {
       return { ok: false, error: 'Missing projectPath/sessionId or invalid status' }
+    }
+    // Remember why this session wants you before the renderer maps the signal
+    // to a status; `attention` is the only signal that carries a reason.
+    if (status === 'attention') {
+      const prev = sessionSignals.get(sessionId)
+      sessionSignals.set(sessionId, {
+        status: 'unread',
+        changedAt: prev?.status === 'unread' ? prev.changedAt : Date.now(),
+        attentionMessage: message || undefined,
+      })
+    } else if (message) {
+      const prev = sessionSignals.get(sessionId)
+      if (prev) sessionSignals.set(sessionId, { ...prev, attentionMessage: undefined })
     }
     const win = findWindowForProject(projectPath)
     if (win && !win.isDestroyed()) {
       win.webContents.send('session:activity-updated', sessionId, status)
     }
+    pushDashboardState()
     return { ok: true }
   })
 
@@ -728,28 +778,36 @@ function getDashboardState(): DashboardState {
   const recentProjects = loadRecentProjects()
 
   // Build a map of open windows: projectPath -> session statuses
-  const openWindows = new Map<string, { sessions: SessionStatusReport[]; ptyManager: PtyManager }>()
+  const openWindows = new Map<string, { sessions: SessionStatusReport[]; ptyManager: PtyManager; activeSessionId?: string }>()
   for (const [winId, state] of windowStates) {
     const activity = windowActivities.get(winId)
     openWindows.set(state.projectPath, {
       sessions: activity?.sessions ?? [],
       ptyManager: state.ptyManager,
+      activeSessionId: state.activeSessionId,
     })
   }
 
   // Helper to build DashboardProject
-  const buildProject = (projectPath: string): DashboardProject => {
+  const buildProject = (projectPath: string, workspace?: string): DashboardProject => {
     const recent = recentProjects.find(p => p.path === projectPath)
     const openWin = openWindows.get(projectPath)
     const sessions: DashboardSession[] = (openWin?.sessions ?? []).map(s => {
       const ptySession = openWin?.ptyManager.getSession(s.sessionId)
+      const signal = sessionSignals.get(s.sessionId)
       return {
         id: s.sessionId,
         name: s.sessionName,
-        running: true,
+        // The status report carries no run state, so read the PTY itself -
+        // a stopped session is exactly what you want to spot on this board.
+        running: ptySession?.running ?? true,
         activityStatus: s.status,
         contextPercent: ptySession?.info?.contextPercent,
         info: ptySession?.info,
+        conversationId: ptySession?.conversationId,
+        statusChangedAt: s.statusChangedAt ?? signal?.changedAt,
+        attentionMessage: s.status === 'unread' ? signal?.attentionMessage : undefined,
+        isActive: openWin?.activeSessionId === s.sessionId,
       }
     })
     return {
@@ -759,6 +817,8 @@ function getDashboardState(): DashboardState {
       emoji: recent?.emoji,
       accentColor: recent?.accentColor,
       sessions,
+      workspace,
+      lastOpened: recent?.lastOpened,
     }
   }
 
@@ -771,19 +831,27 @@ function getDashboardState(): DashboardState {
       emoji: ws.emoji,
       accentColor: ws.accentColor,
       description: ws.description,
-      projects: ws.projects.map(buildProject),
+      projects: ws.projects.map((p) => buildProject(p, ws.name)),
     }
   })
 
-  // Standalone projects (open but not in any workspace)
+  // Standalone projects: open ones first, plus recent-but-closed ones so the
+  // panel can offer every project you actually use, not only what is open now.
   const standaloneProjects: DashboardProject[] = []
+  const seen = new Set<string>()
   for (const [projectPath] of openWindows) {
     if (!workspaceProjectPaths.has(projectPath) && projectPath) {
       standaloneProjects.push(buildProject(projectPath))
+      seen.add(projectPath)
     }
   }
+  for (const recent of recentProjects) {
+    if (workspaceProjectPaths.has(recent.path) || seen.has(recent.path)) continue
+    standaloneProjects.push(buildProject(recent.path))
+    seen.add(recent.path)
+  }
 
-  return { workspaces: dashWorkspaces, standaloneProjects }
+  return { workspaces: dashWorkspaces, standaloneProjects, generatedAt: Date.now() }
 }
 
 // --- Workspaces ---
@@ -1517,6 +1585,11 @@ function focusOrCreateWindow(projectPath: string): BrowserWindow {
   const existing = findWindowForProject(projectPath)
   if (existing) {
     if (existing.isMinimized()) existing.restore()
+    // macOS won't raise a background app from BrowserWindow.focus() alone
+    // (Electron calls activateIgnoringOtherApps:NO, and focus() no-ops on a
+    // window that isn't visible), so bring the app forward first.
+    if (process.platform === 'darwin') app.focus({ steal: true })
+    existing.show()
     existing.focus()
     return existing
   }
@@ -1525,9 +1598,32 @@ function focusOrCreateWindow(projectPath: string): BrowserWindow {
 
 let dashboardWindow: BrowserWindow | null = null
 let dashboardUpdateInterval: ReturnType<typeof setInterval> | null = null
+let dashboardPushTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * Push a fresh snapshot to the Control Panel, coalescing bursts into one send
+ * on the next tick. Called from every source that changes what the panel shows
+ * (activity reports, `ft activity`, `ft context`, window open/close), so the
+ * board reacts immediately instead of waiting out the safety-net poll.
+ */
+function pushDashboardState(): void {
+  if (!dashboardWindow || dashboardWindow.isDestroyed()) return
+  if (dashboardPushTimer) return
+  dashboardPushTimer = setTimeout(() => {
+    dashboardPushTimer = null
+    if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+      dashboardWindow.webContents.send('dashboard:state-changed', getDashboardState())
+    }
+  }, 120)
+}
 
 function createDashboardWindow() {
   if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+    if (dashboardWindow.isMinimized()) dashboardWindow.restore()
+    // Raising a window from a tray click or global shortcut needs the app
+    // itself brought forward on macOS, otherwise it stays behind everything.
+    if (process.platform === 'darwin') app.focus({ steal: true })
+    dashboardWindow.show()
     dashboardWindow.focus()
     return dashboardWindow
   }
@@ -1536,9 +1632,11 @@ function createDashboardWindow() {
   const { width, height } = primaryDisplay.workAreaSize
 
   dashboardWindow = new BrowserWindow({
-    width,
-    height,
-    title: 'ForgeTerm Command Center',
+    width: Math.min(1180, width),
+    height: Math.min(860, height),
+    minWidth: 620,
+    minHeight: 420,
+    title: 'ForgeTerm Control Panel',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 12, y: 12 },
     webPreferences: {
@@ -1554,6 +1652,16 @@ function createDashboardWindow() {
       clearInterval(dashboardUpdateInterval)
       dashboardUpdateInterval = null
     }
+    if (dashboardPushTimer) {
+      clearTimeout(dashboardPushTimer)
+      dashboardPushTimer = null
+    }
+  })
+
+  dashboardWindow.once('ready-to-show', () => {
+    if (process.platform === 'darwin') app.focus({ steal: true })
+    dashboardWindow?.show()
+    dashboardWindow?.focus()
   })
 
   const url = VITE_DEV_SERVER_URL
@@ -1566,12 +1674,13 @@ function createDashboardWindow() {
     dashboardWindow.loadFile(path.join(RENDERER_DIST, 'index.html'), { query: { mode: 'dashboard' } })
   }
 
-  // Push state updates every 2 seconds while dashboard is open
+  // Safety net behind pushDashboardState(): keeps elapsed times honest and
+  // covers any state change that forgets to push.
   dashboardUpdateInterval = setInterval(() => {
     if (dashboardWindow && !dashboardWindow.isDestroyed()) {
       dashboardWindow.webContents.send('dashboard:state-changed', getDashboardState())
     }
-  }, 2000)
+  }, 5000)
 
   return dashboardWindow
 }
@@ -1882,14 +1991,25 @@ function createTray() {
   updateTrayMenu()
 }
 
+// Raise a window so the user really sees it. macOS needs the app activated
+// first; focus() alone leaves it behind whatever is frontmost.
+function raiseWindow(win: BrowserWindow): void {
+  if (win.isDestroyed()) return
+  if (win.isMinimized()) win.restore()
+  if (process.platform === 'darwin') app.focus({ steal: true })
+  win.show()
+  win.focus()
+}
+
 function updateTrayMenu() {
   if (!tray) return
 
   const menuItems: Electron.MenuItemConstructorOptions[] = []
 
-  // Dashboard item at top
+  // Control Panel at top
   menuItems.push({
-    label: 'Command Center',
+    label: 'Control Panel',
+    accelerator: 'CmdOrCtrl+Shift+D',
     click: () => createDashboardWindow(),
   })
   menuItems.push({ type: 'separator' })
@@ -1935,7 +2055,7 @@ function updateTrayMenu() {
       const statusPrefix = hasWorking ? '\u{1F7E2} ' : hasUnread ? '\u{1F7E1} ' : ''
       menuItems.push({
         label: `${indent}${statusPrefix}${activity.projectName}`,
-        click: () => { if (win.isMinimized()) win.restore(); win.focus() },
+        click: () => raiseWindow(win),
       })
       for (const session of activity.sessions) {
         const dot = session.status === 'working' ? '\u25CF' :
@@ -1943,8 +2063,7 @@ function updateTrayMenu() {
         menuItems.push({
           label: `${indent}  ${dot} ${session.sessionName}`,
           click: () => {
-            if (win.isMinimized()) win.restore()
-            win.focus()
+            raiseWindow(win)
             win.webContents.send('notification:focus-session', session.sessionId)
           },
         })
@@ -1954,7 +2073,7 @@ function updateTrayMenu() {
       const name = config?.projectName || path.basename(state.projectPath) || 'ForgeTerm'
       menuItems.push({
         label: `${indent}${name}`,
-        click: () => { if (win.isMinimized()) win.restore(); win.focus() },
+        click: () => raiseWindow(win),
       })
     }
   }
@@ -2036,10 +2155,22 @@ function openWorkspaceFromTray(ws: Workspace) {
 function updateDockBadge() {
   if (process.platform !== 'darwin') return
   let totalUnread = 0
+  let totalWorking = 0
   for (const [, info] of windowActivities) {
     totalUnread += info.sessions.filter((s) => s.status === 'unread').length
+    totalWorking += info.sessions.filter((s) => s.status === 'working').length
   }
   app.dock.setBadge(totalUnread > 0 ? String(totalUnread) : '')
+
+  // The menu-bar icon carries the same headline, so the count is visible even
+  // when every ForgeTerm window (and the Dock) is buried.
+  if (tray && !tray.isDestroyed()) {
+    tray.setTitle(totalUnread > 0 ? ` ${totalUnread}` : '')
+    const parts: string[] = []
+    if (totalUnread > 0) parts.push(`${totalUnread} waiting on you`)
+    if (totalWorking > 0) parts.push(`${totalWorking} working`)
+    tray.setToolTip(parts.length ? `ForgeTerm - ${parts.join(', ')}` : 'ForgeTerm')
+  }
 }
 
 function setupIpcHandlers() {
@@ -2223,6 +2354,83 @@ function setupIpcHandlers() {
     if (sourceWin && targetWin !== sourceWin) {
       setTimeout(() => targetWin.focus(), 100)
     }
+  })
+
+  // --- Control Panel actions -------------------------------------------------
+  // The panel lives in its own window, so every one of these has to reach ACROSS
+  // to a project window rather than acting on the caller's own state.
+
+  ipcMain.handle('dashboard:open', () => {
+    createDashboardWindow()
+  })
+
+  // Raise a project window AND activate one specific session inside it. Both
+  // halves already existed (focusOrCreateWindow + the notification click path);
+  // this is what lets a panel row jump straight to the agent you clicked.
+  ipcMain.handle('dashboard:focus-session', (_event, projectPath: string, sessionId: string) => {
+    const win = focusOrCreateWindow(projectPath)
+    if (!win || win.isDestroyed()) return false
+    if (win.isMinimized()) win.restore()
+    if (process.platform === 'darwin') app.focus({ steal: true })
+    win.show()
+    win.focus()
+    // A window created just now is still loading; wait for its renderer before
+    // asking it to switch sessions, otherwise the message lands nowhere.
+    if (win.webContents.isLoading()) {
+      win.webContents.once('did-finish-load', () => {
+        win.webContents.send('notification:focus-session', sessionId)
+      })
+    } else {
+      win.webContents.send('notification:focus-session', sessionId)
+    }
+    return true
+  })
+
+  ipcMain.handle('dashboard:session-action', (_event, projectPath: string, sessionId: string, action: 'stop' | 'restart') => {
+    const win = findWindowForProject(projectPath)
+    if (!win || win.isDestroyed()) return false
+    const state = windowStates.get(win.id)
+    if (!state) return false
+    if (action === 'stop') {
+      // onExit fires session:exit, which flips the session to stopped in the
+      // project window's store - no extra channel needed.
+      state.ptyManager.kill(sessionId)
+    } else {
+      state.ptyManager.restart(
+        sessionId,
+        (id, data) => { if (!win.isDestroyed()) win.webContents.send('session:data', id, data) },
+        (id, exitCode) => { if (!win.isDestroyed()) win.webContents.send('session:exit', id, exitCode) },
+      )
+      win.webContents.send('session:restarted', sessionId)
+    }
+    schedulePersist(win.id)
+    pushDashboardState()
+    return true
+  })
+
+  // Start a Claude session in any project, reusing the `ft start` queue so it
+  // works whether that project's window already exists or has to be created.
+  ipcMain.handle('dashboard:new-session', (_event, projectPath: string) => {
+    const launch = resolveClaudeLaunch(projectPath)
+    const command = [launch.cliName, ...launch.resumeArgs].join(' ')
+    const existed = !!findWindowForProject(projectPath)
+    const queue = pendingStarts.get(projectPath) ?? []
+    queue.push({ name: 'Claude', command, idle: false })
+    pendingStarts.set(projectPath, queue)
+    const win = focusOrCreateWindow(projectPath)
+    if (existed && win && !win.isDestroyed()) {
+      win.webContents.send('cli:flush-pending-starts')
+    }
+    if (process.platform === 'darwin') app.focus({ steal: true })
+    return true
+  })
+
+  ipcMain.handle('dashboard:close-project', (_event, projectPath: string) => {
+    const win = findWindowForProject(projectPath)
+    if (!win || win.isDestroyed()) return false
+    win.close()
+    pushDashboardState()
+    return true
   })
 
   ipcMain.handle('workspaces:get', () => {
@@ -2875,9 +3083,11 @@ function setupIpcHandlers() {
     const config = loadConfig(state.projectPath)
     const projectName = config?.projectName || path.basename(state.projectPath)
 
+    for (const s of statuses) trackSessionStatus(s.sessionId, s.status)
     windowActivities.set(win.id, { projectName, sessions: statuses })
     updateTrayMenu()
     updateDockBadge()
+    pushDashboardState()
   })
 
   ipcMain.handle('sessions:get-saved', (event) => {
@@ -3022,6 +3232,26 @@ function areClaudeActivityHooksInstalled(): boolean {
   }
 }
 
+/**
+ * Keep an already-installed hook script in step with the app. The installer only
+ * ever runs once, so without this an upgrade would leave the old script in
+ * ~/.claude/hooks/forgeterm/ and newer features (like the attention message the
+ * Control Panel shows) would never arrive.
+ */
+function refreshClaudeActivityHookScript(): void {
+  try {
+    const dest = activityHookScriptDest()
+    if (!fs.existsSync(dest)) return
+    const source = getActivityHookSourcePath()
+    if (!fs.existsSync(source)) return
+    if (fs.readFileSync(source, 'utf-8') === fs.readFileSync(dest, 'utf-8')) return
+    fs.copyFileSync(source, dest)
+    fs.chmodSync(dest, 0o755)
+  } catch {
+    // A stale hook is harmless; never block startup over it.
+  }
+}
+
 function installClaudeActivityHooks(): { success: boolean; error?: string } {
   try {
     const source = getActivityHookSourcePath()
@@ -3125,6 +3355,12 @@ function buildMenu() {
     {
       label: 'File',
       submenu: [
+        {
+          label: 'Control Panel',
+          accelerator: 'CmdOrCtrl+Shift+D',
+          click: () => createDashboardWindow(),
+        },
+        { type: 'separator' },
         {
           label: 'New Session',
           accelerator: 'CmdOrCtrl+N',
@@ -3299,6 +3535,7 @@ app.whenReady().then(() => {
   buildMenu()
   setupIpcHandlers()
   createTray()
+  refreshClaudeActivityHookScript()
   void notificationServer.start()
 
   // Cleanup session history older than 60 days

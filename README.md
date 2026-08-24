@@ -119,6 +119,7 @@ Drop a `.forgeterm.json` in any project to define startup sessions, themes, and 
 | Cmd+F | Find in terminal |
 | Cmd+K | Clear terminal |
 | Cmd+P | Project switcher |
+| Cmd+Shift+D | Control Panel (all projects + sessions) |
 | Cmd+O | Open folder |
 | Cmd+B | Toggle sidebar |
 | Cmd+, | Project settings |

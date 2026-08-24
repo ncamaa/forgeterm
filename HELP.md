@@ -11,6 +11,7 @@ A terminal emulator built for multi-project workflows. Open an entire workspace 
 | ⌘N | New session (defaults to a Claude session) |
 | ⌘T | New session, focused on the recent-sessions search |
 | ⌘⇧T | Reopen last closed session |
+| ⌘⇧D | Control Panel (all projects + sessions) |
 | ⌘⇧Y | Theme editor |
 | ⌘, | Project settings |
 | ⌘P | Switch project |
@@ -101,6 +102,16 @@ Press ⌘⇧H to browse this project's closed sessions. Filter by name or search
 A new session starts Claude by default: the modal comes prefilled with this project's Claude CLI and its permission flags (so an HSP project gets `claude-hsp`), and the newly created session is focused right away. Clear the command field if you just want a plain shell.
 
 Opening a new session with ⌘T also lists this project's recent closed sessions right in the modal, sorted by when they closed or opened - click any one to reopen it, or ⌘⇧T to reopen the most recent. The search box above the list matches session names and titles *and* searches inside each closed Claude conversation, showing the matching lines under each result. Multi-word queries are tried as a phrase first, then as "every word appears somewhere in this conversation". Arrow keys move through the results, Enter reopens the highlighted one.
+
+### Control Panel
+
+One board for every project and every session, for when a dozen agents are running at once. Open it with **⌘⇧D**, from **File > Control Panel**, from the menu-bar icon, from the sidebar button, or with `ft dashboard`.
+
+Projects are rows you can collapse; their sessions nest underneath. Everything is ordered by how much it wants from you - sessions waiting on a response first, then working, then idle - and the menu-bar icon carries the same "waiting on you" count, so you can see it without raising a single window.
+
+Each session row shows its state, how long it has been in that state, what it is doing (or, when it is waiting, the actual question or permission Claude is asking for), and its context usage. Click a row to jump straight to that session in its window. The `waiting` / `working` counters at the top double as filters, and the box next to them filters by name or by what a session is doing.
+
+Per-row controls: stop or restart a session, start a new Claude session in any project, and close a project window. Closed projects are listed at the bottom - click one to open it.
 
 ### Session Activity Indicators
 

@@ -288,10 +288,28 @@ USAGE
   check_response "$response" true || exit 1
 }
 
+cmd_dashboard() {
+  if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    cat <<'USAGE'
+Usage: ft dashboard
+
+Open the Control Panel: every open project and its live sessions in one table,
+showing which agents are working and which are waiting on you.
+
+Also reachable from the ForgeTerm menu bar icon, and with Cmd+Shift+D inside
+any ForgeTerm window.
+USAGE
+    exit 0
+  fi
+  local response
+  response=$(send_to_socket '{"command":"dashboard"}') || exit 1
+  check_response "$response" true || exit 1
+}
+
 cmd_activity() {
   if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
     cat <<'USAGE'
-Usage: ft activity <working|done|attention|idle>
+Usage: ft activity <working|done|attention|idle> [--message "text"]
 
 Report Claude's working state for the current session. ForgeTerm shows a
 loading indicator while a session is working and a glowing notification dot
@@ -300,9 +318,13 @@ when Claude finishes (cleared once you visit the session).
 Usually called automatically by Claude Code hooks:
   UserPromptSubmit -> working   Stop -> done   Notification -> attention
 
+--message carries what the session is waiting for (Claude's question, or the
+permission it needs), shown in the Control Panel next to the session.
+
 Examples:
   ft activity working
   ft activity done
+  ft activity attention --message "Claude needs permission to run Bash"
 USAGE
     exit 0
   fi
@@ -312,9 +334,21 @@ USAGE
     "") echo "Usage: ft activity <working|done|attention|idle>" >&2; exit 1 ;;
     *) echo "Invalid status: $status (use working|done|attention|idle)" >&2; exit 1 ;;
   esac
+  shift
+  local message=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --message) message="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
   require_session
 
-  local json="{\"command\":\"activity\",\"status\":$(json_string "$status"),\"projectPath\":$(json_string "$FORGETERM_PROJECT_PATH"),\"sessionId\":$(json_string "$FORGETERM_SESSION_ID")}"
+  local json="{\"command\":\"activity\",\"status\":$(json_string "$status"),\"projectPath\":$(json_string "$FORGETERM_PROJECT_PATH"),\"sessionId\":$(json_string "$FORGETERM_SESSION_ID")"
+  if [ -n "$message" ]; then
+    json="$json,\"message\":$(json_string "$message")"
+  fi
+  json="$json}"
   local response
   response=$(send_to_socket "$json") || exit 1
   check_response "$response" true || exit 1
@@ -876,6 +910,7 @@ Direct commands:
   start [name]            Start a new live session (--claude, -p "prompt", -c "cmd")
   open-workspace [path]   Open folder as workspace
   list [--json]           List recent projects
+  dashboard               Open the Control Panel (all projects + live sessions)
 
 Command groups:
   project                 Manage projects (list, open, remove)
@@ -902,7 +937,7 @@ case "${1:-}" in
   open)      shift; cmd_open "$@" ;;
   start)     shift; cmd_start "$@" ;;
   list)      shift; cmd_list "$@" ;;
-  dashboard) send_command '{"command":"dashboard"}' ;;
+  dashboard|panel) cmd_dashboard ;;
   open-workspace) shift; cmd_open_workspace "$@" ;;
 
   # Command groups

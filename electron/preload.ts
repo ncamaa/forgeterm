@@ -163,6 +163,21 @@ const api: ForgeTermAPI = {
   getDashboardState: () =>
     ipcRenderer.invoke('dashboard:get-state'),
 
+  openDashboard: () =>
+    ipcRenderer.invoke('dashboard:open'),
+
+  focusSessionInProject: (projectPath: string, sessionId: string) =>
+    ipcRenderer.invoke('dashboard:focus-session', projectPath, sessionId),
+
+  sessionAction: (projectPath: string, sessionId: string, action: 'stop' | 'restart') =>
+    ipcRenderer.invoke('dashboard:session-action', projectPath, sessionId, action),
+
+  newSessionInProject: (projectPath: string) =>
+    ipcRenderer.invoke('dashboard:new-session', projectPath),
+
+  closeProjectWindow: (projectPath: string) =>
+    ipcRenderer.invoke('dashboard:close-project', projectPath),
+
   onDashboardStateChanged: (callback: (state: DashboardState) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, state: DashboardState) => callback(state)
     ipcRenderer.on('dashboard:state-changed', handler)

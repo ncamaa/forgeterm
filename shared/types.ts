@@ -249,6 +249,17 @@ export interface DashboardSession {
   activityStatus: SessionActivityStatus
   contextPercent?: number
   info?: SessionContext
+  /** Claude conversation this session is attached to, if any. */
+  conversationId?: string
+  /** Epoch ms the activity status last changed - drives the "waiting 4m" column. */
+  statusChangedAt?: number
+  /**
+   * Why the session is waiting on you: the Claude notification text passed to
+   * `ft activity attention --message`. Cleared when the session goes back to work.
+   */
+  attentionMessage?: string
+  /** True for the session currently focused in its project window. */
+  isActive?: boolean
 }
 
 export interface DashboardProject {
@@ -258,6 +269,10 @@ export interface DashboardProject {
   emoji?: string
   accentColor?: string
   sessions: DashboardSession[]
+  /** Owning workspace name, so a flat project row can still show where it belongs. */
+  workspace?: string
+  /** Epoch ms this project was last opened (used to order closed projects). */
+  lastOpened?: number
 }
 
 export interface DashboardWorkspace {
@@ -271,6 +286,8 @@ export interface DashboardWorkspace {
 export interface DashboardState {
   workspaces: DashboardWorkspace[]
   standaloneProjects: DashboardProject[]
+  /** Epoch ms this snapshot was built, so the panel can show its own freshness. */
+  generatedAt: number
 }
 
 export interface ForgeTermNotification {
@@ -312,6 +329,8 @@ export interface SessionStatusReport {
   sessionId: string
   sessionName: string
   status: SessionActivityStatus
+  /** Epoch ms the status last changed, stamped by the renderer that owns it. */
+  statusChangedAt?: number
 }
 
 // A live session requested via the `ft start` CLI command, queued by the main
@@ -370,6 +389,12 @@ export interface ForgeTermAPI {
   deleteOldSessions: (maxAgeDays: number) => Promise<number>
   searchTranscripts: (targets: TranscriptSearchTarget[], query: string, perTargetLimit?: number) => Promise<TranscriptSearchResult[]>
   getDashboardState: () => Promise<DashboardState>
+  openDashboard: () => Promise<void>
+  /** Raise a project window and activate one specific session inside it. */
+  focusSessionInProject: (projectPath: string, sessionId: string) => Promise<boolean>
+  sessionAction: (projectPath: string, sessionId: string, action: 'stop' | 'restart') => Promise<boolean>
+  newSessionInProject: (projectPath: string) => Promise<boolean>
+  closeProjectWindow: (projectPath: string) => Promise<boolean>
   onDashboardStateChanged: (callback: (state: DashboardState) => void) => () => void
   deleteWorkspace: (workspaceName: string) => Promise<void>
   openDataFile: (which: 'workspaces' | 'recent-projects') => Promise<void>

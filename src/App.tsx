@@ -450,6 +450,12 @@ function App() {
         openNewSessionModal(e.key === 't' ? 'search' : 'name')
       }
 
+      // Cmd+Shift+D: Control Panel - every project and session in one board
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'd') {
+        e.preventDefault()
+        window.forgeterm.openDashboard()
+      }
+
       // Cmd+Shift+Y: theme editor (Cmd+Shift+T now reopens the last closed
       // session, Chrome-style, handled by the app-menu accelerator).
       if (mod && e.shiftKey && e.key.toLowerCase() === 'y') {
