@@ -20,7 +20,80 @@ interface DropMenuState {
   files: string[]
 }
 
-const terminals = new Map<string, { terminal: Terminal; fitAddon: FitAddon; searchAddon: SearchAddon }>()
+interface TerminalEntry {
+  terminal: Terminal
+  fitAddon: FitAddon
+  searchAddon: SearchAddon
+  /** Live GPU renderer, or null while this terminal is off screen. */
+  webglAddon: WebglAddon | null
+  /** Pending release of an off-screen terminal's GPU renderer. */
+  releaseTimer: ReturnType<typeof setTimeout> | null
+  /** Whether this terminal is the one its window is currently showing. */
+  onScreen: boolean
+}
+
+const terminals = new Map<string, TerminalEntry>()
+
+// xterm's WebGL renderer costs a WebGL context plus two window-sized canvases
+// per terminal, each mirrored again in the GPU process. For an off-screen
+// terminal xterm only *pauses* painting - it never releases any of that - so a
+// window with N sessions pays the full GPU cost N times while showing exactly
+// one of them. We therefore hand the renderer to the terminal actually on
+// screen and reclaim it from the rest. The delay before reclaiming keeps rapid
+// tab switching from thrashing WebGL contexts.
+const RENDERER_RELEASE_DELAY_MS = 8000
+
+function attachRenderer(entry: TerminalEntry) {
+  if (entry.webglAddon) return
+  try {
+    const addon = new WebglAddon()
+    addon.onContextLoss(() => {
+      // Dropping the addon reverts xterm to its DOM renderer; a fresh WebGL one
+      // gets built the next time this terminal comes on screen.
+      if (entry.webglAddon !== addon) return
+      entry.webglAddon = null
+      try { addon.dispose() } catch { /* already gone */ }
+    })
+    entry.terminal.loadAddon(addon)
+    entry.webglAddon = addon
+  } catch {
+    // No WebGL available - xterm stays on its DOM renderer.
+    entry.webglAddon = null
+  }
+}
+
+function releaseRenderer(entry: TerminalEntry) {
+  if (entry.releaseTimer) {
+    clearTimeout(entry.releaseTimer)
+    entry.releaseTimer = null
+  }
+  if (!entry.webglAddon) return
+  const addon = entry.webglAddon
+  // Clear the reference first so onContextLoss during teardown is a no-op.
+  entry.webglAddon = null
+  try { addon.dispose() } catch { /* already disposed */ }
+}
+
+function syncRenderer(entry: TerminalEntry) {
+  // A minimised or hidden window needs no GPU renderer at all, not even for the
+  // terminal it is showing.
+  if (entry.onScreen && document.visibilityState === 'visible') {
+    if (entry.releaseTimer) {
+      clearTimeout(entry.releaseTimer)
+      entry.releaseTimer = null
+    }
+    attachRenderer(entry)
+  } else if (entry.webglAddon && !entry.releaseTimer) {
+    entry.releaseTimer = setTimeout(() => {
+      entry.releaseTimer = null
+      releaseRenderer(entry)
+    }, RENDERER_RELEASE_DELAY_MS)
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  terminals.forEach((entry) => syncRenderer(entry))
+})
 
 // Activity tracking: after 5s of silence, transition from 'working' to 'unread'
 const ACTIVITY_TIMEOUT_MS = 5000
@@ -130,18 +203,8 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
 
     terminal.open(containerRef.current)
 
-    // GPU-accelerated rendering (falls back to default canvas if WebGL unavailable)
-    let webglAddon: WebglAddon | null = null
-    try {
-      webglAddon = new WebglAddon()
-      webglAddon.onContextLoss(() => {
-        try { webglAddon?.dispose() } catch { /* already gone */ }
-        webglAddon = null
-      })
-      terminal.loadAddon(webglAddon)
-    } catch {
-      webglAddon = null
-    }
+    // GPU-accelerated rendering is attached by the on-screen effect below, so a
+    // session that is never viewed never allocates a WebGL context at all.
 
     // Fit after opening
     requestAnimationFrame(() => {
@@ -281,7 +344,15 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
       setIsScrolledUp(!isAtBottom)
     })
 
-    terminals.set(sessionId, { terminal, fitAddon, searchAddon })
+    const entry: TerminalEntry = {
+      terminal,
+      fitAddon,
+      searchAddon,
+      webglAddon: null,
+      releaseTimer: null,
+      onScreen: false,
+    }
+    terminals.set(sessionId, entry)
 
     cleanupRef.current = () => {
       container.removeEventListener('wheel', handleWheel)
@@ -293,13 +364,11 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
       dataHandlers.delete(sessionId)
       if (resizeTimer) clearTimeout(resizeTimer)
       resizeObserver.disconnect()
-      // Dispose WebGL addon first to avoid _isDisposed crash during terminal teardown
-      if (webglAddon) {
-        try { webglAddon.dispose() } catch { /* already disposed */ }
-        webglAddon = null
-      }
+      // Release the GPU renderer first to avoid _isDisposed crash during terminal teardown
+      releaseRenderer(entry)
       terminal.dispose()
       terminals.delete(sessionId)
+      lastOutputAt.delete(sessionId)
       const actTimer = activityTimers.get(sessionId)
       if (actTimer) clearTimeout(actTimer)
       activityTimers.delete(sessionId)
@@ -314,6 +383,16 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
       initializedRef.current = false
     }
   }, [initTerminal])
+
+  // Give the GPU renderer to the terminal on screen, reclaim it from the rest.
+  // Runs before the fit/refresh effect below so the terminal being shown is
+  // already on WebGL by the time it repaints.
+  useEffect(() => {
+    const entry = terminals.get(sessionId)
+    if (!entry) return
+    entry.onScreen = active
+    syncRenderer(entry)
+  }, [active, sessionId])
 
   // Fit and scroll to bottom when becoming active
   useEffect(() => {

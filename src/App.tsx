@@ -813,6 +813,7 @@ function App() {
             onWidthChange={handleSidebarWidthChange}
             onNewSession={() => openNewSessionModal('name')}
             onQuickSession={() => createSession(DEFAULT_SESSION_NAME, claudeStartCommand, false, true)}
+            onQuickTerminal={() => createSession('Terminal', undefined, false, true)}
             onDuplicateSession={(name, command) => createSession(name, command, false, true)}
             onProjectSettings={() => setShowProjectSettings(true)}
             onThemeEditor={() => setShowThemeEditor(true)}

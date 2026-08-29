@@ -818,6 +818,53 @@
   background: rgba(255, 255, 255, 0.03);
 }
 
+/* The quick-add "+" expands into these two choices, sized to match a session row. */
+.sidebar-quick-choices {
+  display: flex;
+  gap: 4px;
+  width: calc(100% - 4px);
+  margin: 4px auto 0;
+}
+
+.sidebar-quick-choice {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  /* Match the height of a session row so the choices sit flush with the tabs. */
+  min-height: 34px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  opacity: 0.75;
+  transition: opacity 0.12s, background 0.12s, transform 0.12s;
+}
+
+.sidebar-quick-choice span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-quick-choice svg {
+  flex-shrink: 0;
+}
+
+.sidebar-quick-choice:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.sidebar-quick-choice:active {
+  transform: scale(0.97);
+}
+
 .sidebar-actions {
   display: flex;
   gap: 6px;

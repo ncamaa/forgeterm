@@ -18,6 +18,7 @@ interface SidebarProps {
   onWidthChange: (width: number) => void
   onNewSession: () => void
   onQuickSession: () => void
+  onQuickTerminal: () => void
   onDuplicateSession: (name: string, command?: string) => void
   onProjectSettings: () => void
   onThemeEditor: () => void
@@ -39,6 +40,7 @@ export function Sidebar({
   onWidthChange,
   onNewSession,
   onQuickSession,
+  onQuickTerminal,
   onDuplicateSession,
   onProjectSettings,
   onThemeEditor,
@@ -55,6 +57,8 @@ export function Sidebar({
   const [editName, setEditName] = useState('')
   const [repoUrl, setRepoUrl] = useState<string | null | undefined>(undefined)
   const [isDragging, setIsDragging] = useState(false)
+  // Quick-add expanded into its Claude / Terminal choices.
+  const [quickAddOpen, setQuickAddOpen] = useState(false)
   const editInputRef = useRef<HTMLInputElement>(null)
 
   const btnBg = buttonBackground ?? '#1c2d4d'
@@ -73,9 +77,14 @@ export function Sidebar({
   }, [])
 
   useEffect(() => {
-    const handleClick = () => { setMenu(null) }
+    const handleClick = () => { setMenu(null); setQuickAddOpen(false) }
+    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setQuickAddOpen(false) }
     window.addEventListener('click', handleClick)
-    return () => window.removeEventListener('click', handleClick)
+    window.addEventListener('keydown', handleKey)
+    return () => {
+      window.removeEventListener('click', handleClick)
+      window.removeEventListener('keydown', handleKey)
+    }
   }, [])
 
   const handleContextMenu = useCallback((e: React.MouseEvent, sessionId: string) => {
@@ -266,16 +275,46 @@ export function Sidebar({
           </div>
         ))}
         {!compact && (
-          <button
-            className="sidebar-quick-add"
-            onClick={onQuickSession}
-            title="New Claude session"
-            style={{ borderColor: accentColor + '30', color: accentColor }}
-          >
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M8 3v10M3 8h10" />
-            </svg>
-          </button>
+          quickAddOpen ? (
+            <div className="sidebar-quick-choices" onClick={(e) => e.stopPropagation()}>
+              <button
+                className="sidebar-quick-choice"
+                onClick={() => { setQuickAddOpen(false); onQuickSession() }}
+                title="New Claude session"
+                style={{ borderColor: accentColor + '55', color: accentColor }}
+              >
+                {/* Starburst = Claude */}
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 1l1.5 4.2L13.7 3l-2.2 4.2L16 8l-4.5 1.5L13.7 13l-4.2-2.2L8 15l-1.5-4.2L2.3 13l2.2-4.2L0 8l4.5-1.5L2.3 3l4.2 2.2z" />
+                </svg>
+                <span>Claude</span>
+              </button>
+              <button
+                className="sidebar-quick-choice"
+                onClick={() => { setQuickAddOpen(false); onQuickTerminal() }}
+                title="New terminal session"
+                style={{ borderColor: accentColor + '55', color: accentColor }}
+              >
+                {/* Prompt caret = plain shell */}
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="1.5" y="2.5" width="13" height="11" rx="2" />
+                  <path d="M4.5 6.5L7 8.75 4.5 11M8.5 11h3" />
+                </svg>
+                <span>Terminal</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              className="sidebar-quick-add"
+              onClick={(e) => { e.stopPropagation(); setQuickAddOpen(true) }}
+              title="New session"
+              style={{ borderColor: accentColor + '30', color: accentColor }}
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M8 3v10M3 8h10" />
+              </svg>
+            </button>
+          )
         )}
       </div>
       <div className={`sidebar-actions ${compact ? 'sidebar-actions-compact' : ''}`}>
