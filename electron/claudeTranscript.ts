@@ -32,8 +32,13 @@ interface CacheEntry {
 
 // Parsed-segment cache keyed by transcript path. Re-parsed only when the file's
 // mtime or size changes, so repeated keystroke searches over a 3MB transcript
-// stay cheap (a substring scan over already-extracted segments).
+// stay cheap (a substring scan over already-extracted segments). Kept as an LRU
+// (Map insertion order, re-inserted on use) capped at CACHE_MAX files.
 const cache = new Map<string, CacheEntry>()
+const CACHE_MAX = 20
+// In-flight parses, so a burst of keystroke searches on a live transcript
+// shares one read instead of queueing a re-read per keystroke.
+const loading = new Map<string, Promise<Segment[]>>()
 
 function claudeProjectsRoot(): string {
   const base = process.env.CLAUDE_CONFIG_DIR && process.env.CLAUDE_CONFIG_DIR.trim()
@@ -42,30 +47,98 @@ function claudeProjectsRoot(): string {
   return path.join(base, 'projects')
 }
 
-// Claude derives the project folder name by replacing every '/' and '.' in the
-// absolute path with '-'. We try that first (fast path); if the file is missing
-// we fall back to scanning all project dirs for the conversation UUID, which is
-// globally unique, so encoding edge cases never break resolution.
+// Claude derives the project folder name by replacing every non-alphanumeric
+// character in the absolute path ('/', '.', spaces, '_', ...) with '-'. We try
+// that first (fast path); if the file is missing we fall back to scanning all
+// project dirs for the conversation UUID, which is globally unique.
 function encodeProjectDir(projectPath: string): string {
-  return projectPath.replace(/[/.]/g, '-')
+  return projectPath.replace(/[^a-zA-Z0-9]/g, '-')
 }
 
-/** Resolve the on-disk transcript path for a conversation, or null if not found. */
+/**
+ * Resolve the on-disk transcript path for a conversation across every Claude
+ * identity's projects root, or null if not found.
+ */
 export function resolveTranscriptPath(conversationId: string, projectPath: string): string | null {
   if (!conversationId) return null
-  const root = claudeProjectsRoot()
-  const fast = path.join(root, encodeProjectDir(projectPath), `${conversationId}.jsonl`)
-  if (fs.existsSync(fast)) return fast
+  const roots = allProjectsRoots()
+  const encoded = encodeProjectDir(projectPath)
+  for (const root of roots) {
+    const fast = path.join(root, encoded, `${conversationId}.jsonl`)
+    if (fs.existsSync(fast)) return fast
+  }
   // Fallback: the encoded dir may differ; the UUID is unique so scan for it.
-  try {
-    for (const dir of fs.readdirSync(root)) {
-      const candidate = path.join(root, dir, `${conversationId}.jsonl`)
-      if (fs.existsSync(candidate)) return candidate
+  for (const root of roots) {
+    try {
+      for (const dir of fs.readdirSync(root)) {
+        const candidate = path.join(root, dir, `${conversationId}.jsonl`)
+        if (fs.existsSync(candidate)) return candidate
+      }
+    } catch {
+      /* projects root missing */
     }
-  } catch {
-    /* projects root missing */
   }
   return null
+}
+
+// Every Claude projects root on this machine: the active config dir first, then
+// each ~/.claude-* identity dir. Most identities symlink to ~/.claude/projects,
+// so roots are deduped by realpath; ~/.claude-codama/projects is a separate
+// directory. Computed once and cached for the life of the process.
+let projectsRootsCache: string[] | null = null
+function allProjectsRoots(): string[] {
+  if (projectsRootsCache) return projectsRootsCache
+  const roots = new Set<string>()
+  const add = (p: string) => {
+    try { roots.add(fs.realpathSync(p)) } catch { /* missing */ }
+  }
+  add(claudeProjectsRoot())
+  try {
+    for (const name of fs.readdirSync(os.homedir())) {
+      if (name === '.claude' || name.startsWith('.claude-')) add(path.join(os.homedir(), name, 'projects'))
+    }
+  } catch {
+    /* home unreadable */
+  }
+  projectsRootsCache = [...roots]
+  return projectsRootsCache
+}
+
+const CONVERSATION_FILE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$/i
+
+/**
+ * True when `claude --resume <id>` run from `projectPath` can find the
+ * conversation, i.e. its transcript exists in that project's folder. Claude only
+ * writes the transcript after the first message, so an id captured from a
+ * session nobody typed into has no file and cannot be resumed.
+ */
+export function conversationTranscriptExists(conversationId: string, projectPath: string): boolean {
+  const dir = encodeProjectDir(projectPath)
+  return allProjectsRoots().some((root) => fs.existsSync(path.join(root, dir, `${conversationId}.jsonl`)))
+}
+
+/**
+ * Newest top-level conversation transcript for a project (by mtime), skipping
+ * `exclude` ids. Subagent transcripts live in nested folders and are never
+ * matched. Returns the conversation id, or null when the project has none.
+ */
+export function findLatestConversationId(projectPath: string, exclude: Set<string>): string | null {
+  const dir = encodeProjectDir(projectPath)
+  let best: { id: string; mtimeMs: number } | null = null
+  for (const root of allProjectsRoots()) {
+    let names: string[]
+    try { names = fs.readdirSync(path.join(root, dir)) } catch { continue }
+    for (const name of names) {
+      if (!CONVERSATION_FILE_RE.test(name)) continue
+      const id = name.slice(0, -'.jsonl'.length)
+      if (exclude.has(id)) continue
+      try {
+        const st = fs.statSync(path.join(root, dir, name))
+        if (st.isFile() && st.size > 0 && (!best || st.mtimeMs > best.mtimeMs)) best = { id, mtimeMs: st.mtimeMs }
+      } catch { /* vanished */ }
+    }
+  }
+  return best?.id ?? null
 }
 
 function collapse(text: string): string {
@@ -139,20 +212,31 @@ function extractSegments(entry: any, msgIndex: number): Segment[] {
   return out
 }
 
-function loadSegments(filePath: string): Segment[] {
+function loadSegments(filePath: string): Promise<Segment[]> {
+  let pending = loading.get(filePath)
+  if (!pending) {
+    pending = readSegments(filePath).finally(() => loading.delete(filePath))
+    loading.set(filePath, pending)
+  }
+  return pending
+}
+
+async function readSegments(filePath: string): Promise<Segment[]> {
   let stat: fs.Stats
   try {
-    stat = fs.statSync(filePath)
+    stat = await fs.promises.stat(filePath)
   } catch {
     return []
   }
   const cached = cache.get(filePath)
   if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    cache.delete(filePath)
+    cache.set(filePath, cached)
     return cached.segments
   }
   let segments: Segment[] = []
   try {
-    const raw = fs.readFileSync(filePath, 'utf-8')
+    const raw = await fs.promises.readFile(filePath, 'utf-8')
     const lines = raw.split('\n')
     segments = []
     for (let i = 0; i < lines.length; i++) {
@@ -170,7 +254,9 @@ function loadSegments(filePath: string): Segment[] {
   } catch {
     segments = []
   }
+  cache.delete(filePath)
   cache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, segments })
+  if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value!)
   return segments
 }
 
@@ -253,11 +339,11 @@ function scanTerms(segments: Segment[], terms: string[], limit: number): Transcr
  * conversation. Returns one entry per target that has any match, preserving
  * target order. Targets whose transcript can't be found are skipped.
  */
-export function searchTranscripts(
+export async function searchTranscripts(
   targets: TranscriptSearchTarget[],
   query: string,
   perTargetLimit = 80,
-): { id: string; matches: TranscriptMatch[] }[] {
+): Promise<{ id: string; matches: TranscriptMatch[] }[]> {
   // Segment text is whitespace-collapsed, so collapse the phrase to match it.
   const phrase = query.trim().toLowerCase().replace(/\s+/g, ' ')
   if (!phrase) return []
@@ -266,7 +352,7 @@ export function searchTranscripts(
   for (const target of targets) {
     const filePath = resolveTranscriptPath(target.conversationId, target.projectPath)
     if (!filePath) continue
-    const segments = loadSegments(filePath)
+    const segments = await loadSegments(filePath)
     let matches = scanPhrase(segments, phrase, perTargetLimit)
     if (matches.length === 0 && terms.length > 1) {
       matches = scanTerms(segments, terms, perTargetLimit) ?? []

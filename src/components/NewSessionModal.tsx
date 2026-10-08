@@ -99,14 +99,20 @@ export function NewSessionModal({
   const searchRef = useRef<HTMLInputElement>(null)
   const selectedRef = useRef<HTMLButtonElement>(null)
 
+  // The search input only renders once the async history load returns, so on
+  // mount it does not exist yet: land on the name field first, then move to
+  // search as soon as it appears (Cmd+T).
+  const hasHistory = history.length > 0
   useEffect(() => {
-    if (initialFocus === 'search') {
-      searchRef.current?.focus()
-    } else {
-      inputRef.current?.focus()
-      inputRef.current?.select()
-    }
-  }, [initialFocus])
+    inputRef.current?.focus()
+    inputRef.current?.select()
+  }, [])
+
+  useEffect(() => {
+    if (initialFocus !== 'search' || !hasHistory) return
+    searchRef.current?.focus()
+    searchRef.current?.select()
+  }, [initialFocus, hasHistory])
 
   // Stable key so the load effect doesn't re-fire on every parent re-render
   // (openConversationIds is a fresh array reference each render).
@@ -225,7 +231,7 @@ export function NewSessionModal({
 
   return (
     <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal new-session-modal" onClick={(e) => e.stopPropagation()}>
+      <div className={`modal new-session-modal${initialFocus === 'search' ? ' new-session-modal-large' : ''}`} onClick={(e) => e.stopPropagation()}>
         <h3>New Session</h3>
 
         <form className="new-session-form" onSubmit={handleSubmit}>

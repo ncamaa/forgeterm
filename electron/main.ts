@@ -6,7 +6,7 @@ import { execSync, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { PtyManager } from './ptyManager'
 import type { ForgeTermConfig, RecentProject, Workspace, WorkspaceTheme, ImportResult, FavoriteTheme, DetectedEditor, UpdateInfo, SessionTemplate, SessionStatusReport, SavedSession, SavedWindowState, SessionContext, SessionActivityStatus, HistoricalSession, SessionHistoryFilter, DashboardState, DashboardProject, DashboardSession, DashboardWorkspace, TranscriptSearchTarget } from '../shared/types'
-import { searchTranscripts } from './claudeTranscript'
+import { searchTranscripts, conversationTranscriptExists, findLatestConversationId } from './claudeTranscript'
 import crypto from 'node:crypto'
 import { UpdateManager } from './updater'
 import { NotificationServer, getSocketPath, type CommandHandler } from './notificationServer'
@@ -1236,22 +1236,84 @@ async function snapshotProcessTree(): Promise<Map<number, number[]>> {
 // Walk a shell's process subtree in memory (no spawning) looking for a child
 // Claude process that has recorded ~/.claude/sessions/{pid}.json, and return its
 // sessionId.
+// Live pid->session files are written per Claude identity: ~/.claude/sessions for
+// the default login, ~/.claude-<identity>/sessions for claude-hsp etc.
+function claudeSessionsDirs(): string[] {
+  const home = app.getPath('home')
+  try {
+    return fs.readdirSync(home)
+      .filter(name => name === '.claude' || name.startsWith('.claude-'))
+      .map(name => path.join(home, name, 'sessions'))
+      .filter(dir => fs.existsSync(dir))
+  } catch {
+    return [path.join(home, '.claude', 'sessions')]
+  }
+}
+
 function findClaudeSessionIdInTree(shellPid: number, childMap: Map<number, number[]>): string | null {
-  const claudeSessionsDir = path.join(app.getPath('home'), '.claude', 'sessions')
+  const sessionsDirs = claudeSessionsDirs()
   const stack = [...(childMap.get(shellPid) ?? [])]
   const seen = new Set<number>()
   while (stack.length > 0) {
     const pid = stack.pop() as number
     if (seen.has(pid)) continue
     seen.add(pid)
-    try {
-      const data = JSON.parse(fs.readFileSync(path.join(claudeSessionsDir, `${pid}.json`), 'utf-8'))
-      if (data.sessionId) return data.sessionId as string
-    } catch { /* not a Claude session */ }
+    for (const dir of sessionsDirs) {
+      try {
+        const data = JSON.parse(fs.readFileSync(path.join(dir, `${pid}.json`), 'utf-8'))
+        if (data.sessionId) return data.sessionId as string
+      } catch { /* not a Claude session */ }
+    }
     const kids = childMap.get(pid)
     if (kids) stack.push(...kids)
   }
   return null
+}
+
+const RESUME_ARG_RE = /--resume\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
+
+// Before a stopped Claude session is started again (Play), make sure its
+// `--resume <id>` points at a conversation Claude can actually find. The id can
+// be stale (a /clear or /resume inside Claude moved on to a newer id) or dead
+// (captured before the first message, so no transcript was ever written), and
+// `claude --resume <dead id>` just errors with "No conversation found". Falls
+// back to the newest transcript in the project, then to a fresh Claude, and
+// prints a one-line notice in the terminal saying which fallback was used.
+function prepareClaudeResume(state: WindowState, win: BrowserWindow, sessionId: string) {
+  const session = state.ptyManager.getSession(sessionId)
+  if (!session?.command || !state.projectPath) return
+  const match = session.command.match(RESUME_ARG_RE)
+  if (!match) return
+  const wanted = session.conversationId || match[1]
+  let resolved: string | null = wanted
+  let notice: string | null = null
+  if (!conversationTranscriptExists(wanted, state.projectPath)) {
+    const others = new Set(
+      state.ptyManager.getAllSessions()
+        .filter(s => s.id !== sessionId && s.conversationId)
+        .map(s => s.conversationId as string),
+    )
+    resolved = findLatestConversationId(state.projectPath, others)
+    notice = resolved
+      ? `Saved conversation ${wanted.slice(0, 8)} was not found, resuming the latest conversation in this project (${resolved.slice(0, 8)}).`
+      : `Saved conversation ${wanted.slice(0, 8)} was not found and this project has no other conversation, starting a fresh Claude session.`
+  }
+  if (resolved === match[1] && !notice) return
+  session.command = resolved
+    ? session.command.replace(RESUME_ARG_RE, `--resume ${resolved}`)
+    : session.command.replace(RESUME_ARG_RE, '').replace(/\s+/g, ' ').trim()
+  if (!resolved) {
+    // Let the poller / SessionStart hook capture the fresh session's new id.
+    session.conversationId = undefined
+  } else {
+    state.ptyManager.setConversationId(sessionId, resolved)
+    if (!win.isDestroyed()) win.webContents.send('session:conversation-updated', sessionId, resolved)
+  }
+  if (notice && !win.isDestroyed()) {
+    state.ptyManager.flush(sessionId)
+    win.webContents.send('session:data', sessionId, `\r\n\x1b[33m[ForgeTerm] ${notice}\x1b[0m\r\n`)
+  }
+  schedulePersist(win.id)
 }
 
 function saveWindowSessionState(state: WindowState) {
@@ -2219,6 +2281,11 @@ function setupIpcHandlers() {
         }
       },
     })
+    // A restored / reopened Claude session is created with a `--resume <id>`
+    // command. Record that id in main too, otherwise the next persist writes the
+    // session back without its conversation id.
+    const resumeId = command?.match(RESUME_ARG_RE)?.[1]
+    if (resumeId) state.ptyManager.setConversationId(id, resumeId)
     schedulePersist(win.id)
     return id
   })
@@ -2240,6 +2307,7 @@ function setupIpcHandlers() {
     if (!state) return null
 
     const win = BrowserWindow.fromWebContents(event.sender)!
+    prepareClaudeResume(state, win, id)
     return state.ptyManager.restart(
       id,
       (sessionId, data) => {
@@ -2426,6 +2494,7 @@ function setupIpcHandlers() {
       // project window's store - no extra channel needed.
       state.ptyManager.kill(sessionId)
     } else {
+      prepareClaudeResume(state, win, sessionId)
       state.ptyManager.restart(
         sessionId,
         (id, data) => { if (!win.isDestroyed()) win.webContents.send('session:data', id, data) },
@@ -3515,30 +3584,71 @@ function isWritableDirectory(dirPath: string): boolean {
   }
 }
 
-function getInitialProjectPath(): string | null {
-  // Check CLI args (skip electron binary and script path)
-  const args = process.argv.slice(app.isPackaged ? 1 : 2)
+// First project directory named in `args`, resolved against `cwd`, or null.
+function projectPathFromArgs(args: string[], cwd: string): string | null {
   for (const arg of args) {
     if (!arg.startsWith('-') && !arg.startsWith('.')) {
       try {
-        const resolved = path.resolve(arg)
+        const resolved = path.resolve(cwd, arg)
         if (fs.statSync(resolved).isDirectory() && isWritableDirectory(resolved)) return resolved
       } catch { /* ignore */ }
     }
     if (arg === '.') {
-      const cwd = process.cwd()
       if (isWritableDirectory(cwd)) return cwd
     }
     if (arg.startsWith('./') || arg.startsWith('/')) {
       try {
-        const resolved = path.resolve(arg)
+        const resolved = path.resolve(cwd, arg)
         if (fs.statSync(resolved).isDirectory() && isWritableDirectory(resolved)) return resolved
       } catch { /* ignore */ }
     }
   }
+  return null
+}
+
+function getInitialProjectPath(): string | null {
+  // Check CLI args (skip electron binary and script path)
   const cwd = process.cwd()
+  const fromArgs = projectPathFromArgs(process.argv.slice(app.isPackaged ? 1 : 2), cwd)
+  if (fromArgs) return fromArgs
   return isWritableDirectory(cwd) ? cwd : null
 }
+
+// One ForgeTerm per user: a second launch (e.g. `ForgeTerm /some/path`) hands its
+// project path to the running app instead of starting a duplicate. Packaged only:
+// the dev build's userData dir ("forgeterm") is the same folder as the installed
+// app's ("ForgeTerm") on case-insensitive macOS volumes, and the lock is keyed on
+// userData, so locking in dev would stop `pnpm dev` running beside the real app.
+if (app.isPackaged && !app.requestSingleInstanceLock()) {
+  app.exit(0)
+} else {
+  app.on('second-instance', (_event, argv, workingDirectory) => {
+    if (!app.isReady()) return
+    const projectPath = projectPathFromArgs(argv.slice(1), workingDirectory)
+    if (projectPath) focusOrCreateWindow(projectPath)
+    else createDashboardWindow()
+  })
+}
+
+// GPU / renderer / utility process deaths are otherwise silent (a dead GPU
+// process just freezes every window), so record them for later diagnosis.
+function appendCrashLog(line: string) {
+  try {
+    const dir = path.join(app.getPath('userData'), 'logs')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.appendFileSync(path.join(dir, 'process-gone.log'), `${new Date().toISOString()} ${line}\n`)
+  } catch { /* logging must never throw */ }
+}
+
+app.on('child-process-gone', (_event, details) => {
+  appendCrashLog(`child-process-gone type=${details.type} reason=${details.reason} exitCode=${details.exitCode}${details.name ? ` name=${details.name}` : ''}`)
+})
+
+app.on('render-process-gone', (_event, webContents, details) => {
+  let url = ''
+  try { url = webContents.getURL() } catch { /* destroyed */ }
+  appendCrashLog(`render-process-gone type=renderer reason=${details.reason} exitCode=${details.exitCode} url=${url}`)
+})
 
 // Handle macOS "Open with" / drag folder onto dock icon
 app.on('open-file', (event, filePath) => {

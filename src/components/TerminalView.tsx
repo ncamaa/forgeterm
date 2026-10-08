@@ -26,6 +26,10 @@ interface TerminalEntry {
   searchAddon: SearchAddon
   /** Live GPU renderer, or null while this terminal is off screen. */
   webglAddon: WebglAddon | null
+  /** Canvases the live WebGL renderer added, kept so its context can be force-lost on release. */
+  webglCanvases: HTMLCanvasElement[]
+  /** False when the project config opts out of the GPU renderer (`gpuRenderer: false`). */
+  gpuRenderer: boolean
   /** Pending release of an off-screen terminal's GPU renderer. */
   releaseTimer: ReturnType<typeof setTimeout> | null
   /** Whether this terminal is the one its window is currently showing. */
@@ -52,10 +56,16 @@ function attachRenderer(entry: TerminalEntry) {
       // gets built the next time this terminal comes on screen.
       if (entry.webglAddon !== addon) return
       entry.webglAddon = null
+      entry.webglCanvases = []
       try { addon.dispose() } catch { /* already gone */ }
     })
+    const screen = entry.terminal.element?.querySelector('.xterm-screen')
+    const before = new Set(screen ? Array.from(screen.querySelectorAll('canvas')) : [])
     entry.terminal.loadAddon(addon)
     entry.webglAddon = addon
+    entry.webglCanvases = screen
+      ? Array.from(screen.querySelectorAll('canvas')).filter((c) => !before.has(c))
+      : []
   } catch {
     // No WebGL available - xterm stays on its DOM renderer.
     entry.webglAddon = null
@@ -71,13 +81,26 @@ function releaseRenderer(entry: TerminalEntry) {
   const addon = entry.webglAddon
   // Clear the reference first so onContextLoss during teardown is a no-op.
   entry.webglAddon = null
+  const canvases = entry.webglCanvases
+  entry.webglCanvases = []
   try { addon.dispose() } catch { /* already disposed */ }
+  // addon-webgl 0.19's dispose() detaches its canvas but never loses the WebGL
+  // context, so the GPU process keeps the context's memory until a GC that may
+  // never come. Lose it explicitly.
+  for (const canvas of canvases) {
+    try {
+      const gl = canvas.getContext('webgl2') || canvas.getContext('webgl')
+      gl?.getExtension('WEBGL_lose_context')?.loseContext()
+    } catch { /* best effort */ }
+  }
 }
 
 function syncRenderer(entry: TerminalEntry) {
   // A minimised or hidden window needs no GPU renderer at all, not even for the
   // terminal it is showing.
-  if (entry.onScreen && document.visibilityState === 'visible') {
+  if (!entry.gpuRenderer) {
+    releaseRenderer(entry)
+  } else if (entry.onScreen && document.visibilityState === 'visible') {
     if (entry.releaseTimer) {
       clearTimeout(entry.releaseTimer)
       entry.releaseTimer = null
@@ -349,6 +372,8 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
       fitAddon,
       searchAddon,
       webglAddon: null,
+      webglCanvases: [],
+      gpuRenderer: currentConfig?.gpuRenderer !== false,
       releaseTimer: null,
       onScreen: false,
     }
@@ -435,6 +460,11 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
       }
       if (config?.font?.size) {
         entry.terminal.options.fontSize = config.font.size
+      }
+      const gpuRenderer = config?.gpuRenderer !== false
+      if (entry.gpuRenderer !== gpuRenderer) {
+        entry.gpuRenderer = gpuRenderer
+        syncRenderer(entry)
       }
     }
   }, [config, sessionId])

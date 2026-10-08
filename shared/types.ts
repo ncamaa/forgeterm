@@ -43,6 +43,9 @@ export interface ForgeTermConfig {
   // Whether ForgeTerm-built Claude resume/restore commands include
   // --dangerously-skip-permissions (default true).
   dangerouslySkipPermissions?: boolean
+  // Use xterm's WebGL renderer for the on-screen terminal (default true).
+  // false keeps every terminal on the DOM renderer and never creates a GPU context.
+  gpuRenderer?: boolean
 }
 
 export interface SessionInfo {

@@ -14,6 +14,11 @@ interface PtySession {
   createdAt: number
   // True once the user renamed this session manually; blocks CLI/Claude renames.
   nameLocked?: boolean
+  // Last size the renderer reported, kept even while the PTY is stopped so a
+  // restart spawns at the terminal's real size instead of 80x24. xterm only
+  // reports a size when its container changes, so nothing else would correct it.
+  cols?: number
+  rows?: number
 }
 
 interface CreateSessionOptions {
@@ -30,6 +35,11 @@ interface CreateSessionOptions {
 export type DataListener = (id: string, data: string) => void
 export type ExitListener = (id: string, exitCode: number) => void
 
+// PTY output is coalesced per session before it reaches the renderer: one IPC
+// message per frame instead of one per chunk. Large bursts flush early.
+const DATA_BATCH_MS = 16
+const DATA_BATCH_MAX = 64 * 1024
+
 export class PtyManager {
   private sessions = new Map<string, PtySession>()
   private nextId = 1
@@ -37,7 +47,31 @@ export class PtyManager {
   private exitCallbacks = new Map<string, (id: string, exitCode: number) => void>()
   private extraDataListeners = new Map<string, Set<DataListener>>()
   private extraExitListeners = new Map<string, Set<ExitListener>>()
+  private pendingData = new Map<string, { data: string; timer: ReturnType<typeof setTimeout> }>()
   private socketPath?: string
+
+  private emitData(id: string, data: string) {
+    const pending = this.pendingData.get(id)
+    if (pending) {
+      pending.data += data
+      if (pending.data.length >= DATA_BATCH_MAX) this.flush(id)
+      return
+    }
+    if (data.length >= DATA_BATCH_MAX) {
+      this.dataCallbacks.get(id)?.(id, data)
+      return
+    }
+    this.pendingData.set(id, { data, timer: setTimeout(() => this.flush(id), DATA_BATCH_MS) })
+  }
+
+  /** Sends any coalesced output for this session now. Call before anything that must arrive after it. */
+  flush(id: string) {
+    const pending = this.pendingData.get(id)
+    if (!pending) return
+    clearTimeout(pending.timer)
+    this.pendingData.delete(id)
+    this.dataCallbacks.get(id)?.(id, pending.data)
+  }
 
   createSession(options: CreateSessionOptions): string {
     const id = `session-${this.nextId++}`
@@ -72,11 +106,12 @@ export class PtyManager {
     const proc = this.spawnShell(options.cwd, extraEnv)
 
     proc.onData((data) => {
-      this.dataCallbacks.get(id)?.(id, data)
+      this.emitData(id, data)
       this.extraDataListeners.get(id)?.forEach(cb => cb(id, data))
     })
 
     proc.onExit(({ exitCode }) => {
+      this.flush(id)
       const session = this.sessions.get(id)
       if (session) {
         session.running = false
@@ -107,12 +142,12 @@ export class PtyManager {
     return id
   }
 
-  private spawnShell(cwd: string, extraEnv?: Record<string, string>): pty.IPty {
+  private spawnShell(cwd: string, extraEnv?: Record<string, string>, cols = 80, rows = 24): pty.IPty {
     const shell = process.env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : '/bin/zsh')
     return pty.spawn(shell, [], {
       name: 'xterm-256color',
-      cols: 80,
-      rows: 24,
+      cols,
+      rows,
       cwd,
       env: { ...process.env, ...extraEnv } as Record<string, string>,
     })
@@ -128,14 +163,20 @@ export class PtyManager {
   }
 
   resize(id: string, cols: number, rows: number) {
+    const session = this.sessions.get(id)
+    if (session && cols > 0 && rows > 0) {
+      session.cols = cols
+      session.rows = rows
+    }
     try {
-      this.sessions.get(id)?.pty?.resize(cols, rows)
+      session?.pty?.resize(cols, rows)
     } catch {
       // ignore resize errors on dead PTY
     }
   }
 
   kill(id: string) {
+    this.flush(id)
     const session = this.sessions.get(id)
     if (session?.pty) {
       session.pty.kill()
@@ -157,6 +198,7 @@ export class PtyManager {
     const session = this.sessions.get(id)
     if (!session) return id
 
+    this.flush(id)
     // Kill existing PTY if still running
     if (session.pty) {
       session.pty.kill()
@@ -171,17 +213,18 @@ export class PtyManager {
     }
     if (this.socketPath) extraEnv.FORGETERM_SOCKET = this.socketPath
 
-    const proc = this.spawnShell(session.cwd, extraEnv)
+    const proc = this.spawnShell(session.cwd, extraEnv, session.cols, session.rows)
 
     this.dataCallbacks.set(id, onData)
     this.exitCallbacks.set(id, onExit)
 
     proc.onData((data) => {
-      this.dataCallbacks.get(id)?.(id, data)
+      this.emitData(id, data)
       this.extraDataListeners.get(id)?.forEach(cb => cb(id, data))
     })
 
     proc.onExit(({ exitCode }) => {
+      this.flush(id)
       const s = this.sessions.get(id)
       if (s) {
         s.running = false
