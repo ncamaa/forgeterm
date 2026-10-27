@@ -1,6 +1,10 @@
 import { create } from 'zustand'
 import type { SessionActivityStatus, SessionActivitySignal, SessionContext } from '../../shared/types'
 
+// dataTransfer type set while a sidebar session row is dragged to reorder, so other
+// drop targets (the terminal's file drop) can tell it apart from external drags.
+export const SESSION_DRAG_TYPE = 'application/x-forgeterm-session'
+
 export interface Session {
   id: string
   name: string
@@ -23,6 +27,8 @@ interface SessionStore {
   addSession: (session: Omit<Session, 'activityStatus'>) => void
   removeSession: (id: string) => void
   setActive: (id: string) => void
+  // Moves a session to `toIndex` in the list (sidebar drag reorder).
+  moveSession: (id: string, toIndex: number) => void
   setRunning: (id: string, running: boolean) => void
   renameSession: (id: string, name: string) => void
   setSessionInfo: (id: string, info: SessionContext) => void
@@ -71,6 +77,16 @@ export const useSessionStore = create<SessionStore>((set) => ({
           : s,
       ),
     })),
+
+  moveSession: (id, toIndex) =>
+    set((state) => {
+      const from = state.sessions.findIndex((s) => s.id === id)
+      if (from < 0 || from === toIndex) return state
+      const sessions = [...state.sessions]
+      const [moved] = sessions.splice(from, 1)
+      sessions.splice(toIndex, 0, moved)
+      return { sessions }
+    }),
 
   setRunning: (id, running) =>
     set((state) => ({

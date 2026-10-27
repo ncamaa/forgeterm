@@ -349,6 +349,38 @@
   box-shadow: -3px 0 10px -2px var(--accent-glow, transparent), inset 0 0 22px -12px var(--accent-glow, transparent);
 }
 
+/* Drag-to-reorder: the dragged row dims, a glowing accent line marks where it lands. */
+.sidebar-session.dragging {
+  opacity: 0.35;
+}
+
+.sidebar-session.drop-before,
+.sidebar-session.drop-after {
+  position: relative;
+  opacity: 1;
+}
+
+.sidebar-session.drop-before::before,
+.sidebar-session.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent-color, #38bdf8);
+  box-shadow: 0 0 6px var(--accent-glow, transparent);
+  pointer-events: none;
+}
+
+.sidebar-session.drop-before::before {
+  top: -1px;
+}
+
+.sidebar-session.drop-after::after {
+  bottom: -1px;
+}
+
 /* Context circle indicator */
 .context-circle {
   flex-shrink: 0;

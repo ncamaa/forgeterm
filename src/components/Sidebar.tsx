@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useSessionStore, type Session } from '../store/sessionStore'
+import { useSessionStore, SESSION_DRAG_TYPE, type Session } from '../store/sessionStore'
 import type { CliStatus } from '../../shared/types'
 
 interface MenuState {
@@ -57,6 +57,12 @@ export function Sidebar({
   const [editName, setEditName] = useState('')
   const [repoUrl, setRepoUrl] = useState<string | null | undefined>(undefined)
   const [isDragging, setIsDragging] = useState(false)
+  // Drag-to-reorder of session rows (native HTML5 DnD, as in ProjectSwitcher). The
+  // ref is what the handlers read; the state only drives the dimmed row and drop line.
+  // A slot is an insertion index, 0..sessions.length.
+  const dragRef = useRef<{ id: string; slot: number } | null>(null)
+  const [dragSessionId, setDragSessionId] = useState<string | null>(null)
+  const [dropSlot, setDropSlot] = useState(-1)
   const editInputRef = useRef<HTMLInputElement>(null)
 
   const btnBg = buttonBackground ?? '#1c2d4d'
@@ -140,6 +146,69 @@ export function Sidebar({
 
   const compact = mode === 'compact'
 
+  const handleRowDragStart = useCallback((e: React.DragEvent, id: string) => {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData(SESSION_DRAG_TYPE, id)
+    dragRef.current = { id, slot: -1 }
+    setMenu(null)
+    // Dim the row a frame later, once Chromium has snapshotted it as the drag image.
+    requestAnimationFrame(() => {
+      if (dragRef.current?.id === id) setDragSessionId(id)
+    })
+  }, [])
+
+  const handleRowDragOver = useCallback((e: React.DragEvent, index: number) => {
+    const drag = dragRef.current
+    if (!drag) return // a file drag, not a reorder
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    // Upper half of a row drops above it, lower half below it.
+    const rect = e.currentTarget.getBoundingClientRect()
+    drag.slot = e.clientY < rect.top + rect.height / 2 ? index : index + 1
+    setDropSlot(drag.slot)
+  }, [])
+
+  const endRowDrag = useCallback(() => {
+    dragRef.current = null
+    setDragSessionId(null)
+    setDropSlot(-1)
+  }, [])
+
+  // Drop and dragover are handled on the list too, so the gaps around rows count.
+  const handleListDragOver = useCallback((e: React.DragEvent) => {
+    if (dragRef.current) e.preventDefault()
+  }, [])
+
+  const handleListDragLeave = useCallback((e: React.DragEvent) => {
+    // Clear the drop line only when the cursor actually leaves the list, not on
+    // every move between rows (those also fire dragleave).
+    const drag = dragRef.current
+    if (!drag) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    if (e.clientX > rect.left && e.clientX < rect.right && e.clientY > rect.top && e.clientY < rect.bottom) return
+    drag.slot = -1
+    setDropSlot(-1)
+  }, [])
+
+  const handleListDrop = useCallback((e: React.DragEvent) => {
+    const drag = dragRef.current
+    if (!drag) return
+    e.preventDefault()
+    const store = useSessionStore.getState()
+    const from = store.sessions.findIndex((s) => s.id === drag.id)
+    // Taking the row out shifts every slot below it up by one.
+    const to = drag.slot > from ? drag.slot - 1 : drag.slot
+    if (from >= 0 && drag.slot >= 0 && to !== from) {
+      store.moveSession(drag.id, to)
+      window.forgeterm.reorderSessions(useSessionStore.getState().sessions.map((s) => s.id))
+    }
+    endRowDrag()
+  }, [endRowDrag])
+
+  // Slots directly above or below the dragged row would not move it: no line there.
+  const dragFrom = dragSessionId ? sessions.findIndex((s) => s.id === dragSessionId) : -1
+  const shownSlot = dropSlot >= 0 && dropSlot !== dragFrom && dropSlot !== dragFrom + 1 ? dropSlot : -1
+
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     setIsDragging(true)
@@ -173,16 +242,26 @@ export function Sidebar({
       }}
     >
       {!compact && <div className="sidebar-header" style={{ color: sidebarFg }}>Sessions</div>}
-      <div className="sidebar-sessions">
-        {sessions.map((session: Session) => (
+      <div
+        className="sidebar-sessions"
+        onDragOver={handleListDragOver}
+        onDragLeave={handleListDragLeave}
+        onDrop={handleListDrop}
+      >
+        {sessions.map((session: Session, index: number) => (
           <div
             key={session.id}
-            className={`sidebar-session ${session.id === activeSessionId ? 'active' : ''}`}
+            className={`sidebar-session ${session.id === activeSessionId ? 'active' : ''}${session.id === dragSessionId ? ' dragging' : ''}${shownSlot === index ? ' drop-before' : ''}${shownSlot === sessions.length && index === sessions.length - 1 ? ' drop-after' : ''}`}
             style={
               session.id === activeSessionId
                 ? { borderLeftColor: accentColor, background: btnBg }
                 : undefined
             }
+            // Not while renaming, so mouse text selection in the input still works.
+            draggable={editingId !== session.id}
+            onDragStart={(e) => handleRowDragStart(e, session.id)}
+            onDragOver={(e) => handleRowDragOver(e, index)}
+            onDragEnd={endRowDrag}
             onClick={() => setActive(session.id)}
             onContextMenu={(e) => handleContextMenu(e, session.id)}
             title={compact ? session.name : undefined}

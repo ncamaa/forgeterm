@@ -97,6 +97,9 @@ function trackSessionStatus(sessionId: string, status: SessionActivityStatus): v
 // whether the target window already existed or was created to service the request.
 const pendingStarts = new Map<string, import('../shared/types').PendingSessionStart[]>()
 
+// Max activity timeline entries kept per session (in memory and in saved-sessions.json).
+const SESSION_TIMELINE_CAP = 50
+
 // Wrap a string as a single shell argument (POSIX single-quoting).
 function shellSingleQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`
@@ -217,8 +220,7 @@ function buildCliHandlers(): Map<string, CommandHandler> {
       const existingTimeline = existing?.info?.timeline ?? []
       const existingContextPercent = existing?.info?.contextPercent
       const newEntry = { title, summary, lastAction, actionItem: actionItem || undefined, timestamp: Date.now(), contextPercent: existingContextPercent }
-      // Cap timeline at 50 entries
-      const timeline = [...existingTimeline, newEntry].slice(-50)
+      const timeline = [...existingTimeline, newEntry].slice(-SESSION_TIMELINE_CAP)
       const info: SessionContext = { title, summary, lastAction, actionItem: actionItem || undefined, updatedAt: Date.now(), contextPercent: existingContextPercent, timeline }
       state?.ptyManager.setSessionInfo(sessionId, info)
       win.webContents.send('session:info-updated', sessionId, info)
@@ -2258,7 +2260,7 @@ function updateDockBadge() {
 }
 
 function setupIpcHandlers() {
-  ipcMain.handle('session:create', (event, name: string, command?: string, idle?: boolean, nameLocked?: boolean) => {
+  ipcMain.handle('session:create', (event, name: string, command?: string, idle?: boolean, nameLocked?: boolean, info?: SessionContext) => {
     const state = getStateForEvent(event)
     if (!state) return null
 
@@ -2286,6 +2288,12 @@ function setupIpcHandlers() {
     // session back without its conversation id.
     const resumeId = command?.match(RESUME_ARG_RE)?.[1]
     if (resumeId) state.ptyManager.setConversationId(id, resumeId)
+    // Same for the restored info card and activity timeline: main is what gets
+    // persisted, so without this the next save drops them (and the next `ft info`
+    // would start the timeline over).
+    if (info) {
+      state.ptyManager.setSessionInfo(id, { ...info, timeline: info.timeline?.slice(-SESSION_TIMELINE_CAP) })
+    }
     schedulePersist(win.id)
     return id
   })
@@ -2334,6 +2342,13 @@ function setupIpcHandlers() {
   ipcMain.handle('session:rename', (event, id: string, name: string) => {
     // User-initiated rename locks the name against later CLI/Claude renames.
     getStateForEvent(event)?.ptyManager.rename(id, name, true)
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win) schedulePersist(win.id)
+  })
+
+  // Sidebar drag reorder: main's session order is what gets persisted and restored.
+  ipcMain.handle('session:reorder', (event, ids: string[]) => {
+    getStateForEvent(event)?.ptyManager.reorder(ids)
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win) schedulePersist(win.id)
   })

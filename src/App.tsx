@@ -157,7 +157,7 @@ function App() {
               idle = true
             }
 
-            const id = await window.forgeterm.createSession(s.name, command, idle, s.nameLocked)
+            const id = await window.forgeterm.createSession(s.name, command, idle, s.nameLocked, s.info)
             return id ? { id, name: s.name, command: s.command, running: !idle, info: s.info, conversationId: s.claudeSessionId } : null
           })
         )
@@ -358,7 +358,7 @@ function App() {
               command = buildResumeCommand(s.claudeSessionId, launch)
               idle = true
             }
-            const id = await window.forgeterm.createSession(s.name, command, idle, s.nameLocked)
+            const id = await window.forgeterm.createSession(s.name, command, idle, s.nameLocked, s.info)
             return id ? { id, name: s.name, command: s.command, running: !idle, info: s.info, conversationId: s.claudeSessionId } : null
           })
         )
@@ -635,9 +635,10 @@ function App() {
   // conversation; other shells re-run their stored command.
   const handleReopenHistorical = useCallback(async (h: HistoricalSession) => {
     const command = h.conversationId ? buildResumeCommand(h.conversationId, claudeLaunch) : h.command
-    const id = await window.forgeterm.createSession(h.name, command)
+    const id = await window.forgeterm.createSession(h.name, command, undefined, undefined, h.info)
     if (id) {
       addSession({ id, name: h.name, command, running: true, conversationId: h.conversationId })
+      if (h.info) useSessionStore.getState().setSessionInfo(id, h.info)
       setActive(id)
     }
     setShowHistory(false)

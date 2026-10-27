@@ -255,6 +255,21 @@ export class PtyManager {
     }
   }
 
+  // Re-inserts sessions in the renderer's sidebar order. Map iteration order is
+  // what getAllSessions (persist, `ft sessions`, remote) reports; unlisted ids keep
+  // their relative order at the end.
+  reorder(ids: string[]) {
+    const reordered = new Map<string, PtySession>()
+    for (const id of ids) {
+      const session = this.sessions.get(id)
+      if (session) reordered.set(id, session)
+    }
+    for (const [id, session] of this.sessions) {
+      if (!reordered.has(id)) reordered.set(id, session)
+    }
+    this.sessions = reordered
+  }
+
   isNameLocked(id: string): boolean {
     return this.sessions.get(id)?.nameLocked ?? false
   }

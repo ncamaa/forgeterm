@@ -2,8 +2,8 @@ import { ipcRenderer, contextBridge } from 'electron'
 import type { ForgeTermAPI, CliStatus, UpdateInfo, RemoteStatus, SessionContext, DashboardState } from '../shared/types'
 
 const api: ForgeTermAPI = {
-  createSession: (name: string, command?: string, idle?: boolean, nameLocked?: boolean) =>
-    ipcRenderer.invoke('session:create', name, command, idle, nameLocked),
+  createSession: (name: string, command?: string, idle?: boolean, nameLocked?: boolean, info?: SessionContext) =>
+    ipcRenderer.invoke('session:create', name, command, idle, nameLocked, info),
 
   killSession: (id: string) =>
     ipcRenderer.invoke('session:kill', id),
@@ -57,6 +57,9 @@ const api: ForgeTermAPI = {
 
   renameSession: (id: string, name: string) =>
     ipcRenderer.invoke('session:rename', id, name),
+
+  reorderSessions: (ids: string[]) =>
+    ipcRenderer.invoke('session:reorder', ids),
 
   onMenuNewSession: (callback: () => void) => {
     const handler = () => callback()

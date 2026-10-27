@@ -351,7 +351,9 @@ export interface PendingSessionStart {
 }
 
 export interface ForgeTermAPI {
-  createSession: (name: string, command?: string, idle?: boolean, nameLocked?: boolean) => Promise<string>
+  // `info` re-seeds a restored session's title / summary / activity timeline in main,
+  // so the next persist does not write the session back without it.
+  createSession: (name: string, command?: string, idle?: boolean, nameLocked?: boolean, info?: SessionContext) => Promise<string>
   killSession: (id: string) => Promise<void>
   restartSession: (id: string) => Promise<string>
   writeToSession: (id: string, data: string) => void
@@ -365,6 +367,8 @@ export interface ForgeTermAPI {
   onConfigChanged: (callback: () => void) => () => void
   openFolder: () => Promise<string | null>
   renameSession: (id: string, name: string) => Promise<void>
+  // Pushes the sidebar's new session order (all ids, top to bottom) to main.
+  reorderSessions: (ids: string[]) => Promise<void>
   onMenuNewSession: (callback: () => void) => () => void
   createAndOpenConfig: () => Promise<void>
   saveConfig: (config: ForgeTermConfig) => Promise<void>

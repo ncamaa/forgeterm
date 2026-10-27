@@ -6,7 +6,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { SearchAddon } from '@xterm/addon-search'
 import '@xterm/xterm/css/xterm.css'
 import type { ForgeTermConfig } from '../../shared/types'
-import { useSessionStore } from '../store/sessionStore'
+import { useSessionStore, SESSION_DRAG_TYPE } from '../store/sessionStore'
 
 interface TerminalViewProps {
   sessionId: string
@@ -295,7 +295,11 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
 
     // Drag-and-drop
     const container = containerRef.current
+    // A sidebar session-row drag passing over the terminal is not a drop: no
+    // "Drop file" overlay, and no drop target.
+    const isSessionRowDrag = (e: DragEvent) => e.dataTransfer?.types.includes(SESSION_DRAG_TYPE) ?? false
     const handleDragEnter = (e: DragEvent) => {
+      if (isSessionRowDrag(e)) return
       e.preventDefault()
       e.stopPropagation()
       dragCountRef.current++
@@ -304,10 +308,12 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
       }
     }
     const handleDragOver = (e: DragEvent) => {
+      if (isSessionRowDrag(e)) return
       e.preventDefault()
       e.stopPropagation()
     }
     const handleDragLeave = (e: DragEvent) => {
+      if (isSessionRowDrag(e)) return
       e.preventDefault()
       e.stopPropagation()
       dragCountRef.current--
