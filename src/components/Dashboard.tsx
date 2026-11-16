@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import type { DashboardState, DashboardProject, DashboardSession } from '../../shared/types'
 import { SessionSearch } from './SessionSearch'
+import { PeerNameBadge } from './PeerNameBadge'
 
 /**
  * The Control Panel: every project and every live session on one board, so a
@@ -84,6 +85,7 @@ function SessionRow({
       <span className="cp-cell cp-cell-status"><StatusDot session={session} /></span>
       <span className="cp-cell cp-cell-name">
         <span className="cp-session-name">{session.name}</span>
+        {session.peerName && <PeerNameBadge name={session.peerName} />}
         {session.conversationId && <span className="cp-tag cp-tag-claude">Claude</span>}
         {!session.running && <span className="cp-tag cp-tag-stopped">stopped</span>}
       </span>
@@ -217,6 +219,7 @@ function ProjectCard({
                 <div className="cp-card-session-top">
                   <StatusDot session={s} />
                   <span className="cp-session-name">{s.name}</span>
+                  {s.peerName && <PeerNameBadge name={s.peerName} />}
                   {!s.running && <span className="cp-tag cp-tag-stopped">stopped</span>}
                   <span className="cp-card-session-right">
                     {s.contextPercent != null && (
@@ -461,7 +464,7 @@ export function Dashboard() {
       if (filter === 'waiting' && !(s.running && s.activityStatus === 'unread')) return false
       if (filter === 'working' && !(s.running && s.activityStatus === 'working')) return false
       if (!q) return true
-      const hay = [s.name, s.attentionMessage, s.info?.title, s.info?.summary, s.info?.lastAction]
+      const hay = [s.name, s.peerName, s.attentionMessage, s.info?.title, s.info?.summary, s.info?.lastAction]
         .filter(Boolean).join(' ').toLowerCase()
       return hay.includes(q)
     }

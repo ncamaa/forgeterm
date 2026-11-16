@@ -7,6 +7,7 @@ import { promisify } from 'node:util'
 import { PtyManager } from './ptyManager'
 import type { ForgeTermConfig, RecentProject, Workspace, WorkspaceTheme, ImportResult, FavoriteTheme, DetectedEditor, UpdateInfo, SessionTemplate, SessionStatusReport, SavedSession, SavedWindowState, SessionContext, SessionActivityStatus, HistoricalSession, SessionHistoryFilter, DashboardState, DashboardProject, DashboardSession, DashboardWorkspace, TranscriptSearchTarget } from '../shared/types'
 import { searchTranscripts, conversationTranscriptExists, findLatestConversationId } from './claudeTranscript'
+import { readLiveClaudeSessions, peerNameByConversation, peerNameByAncestry } from './claudePeerNames'
 import crypto from 'node:crypto'
 import { UpdateManager } from './updater'
 import { NotificationServer, getSocketPath, type CommandHandler } from './notificationServer'
@@ -807,6 +808,7 @@ function getDashboardState(): DashboardState {
         contextPercent: ptySession?.info?.contextPercent,
         info: ptySession?.info,
         conversationId: ptySession?.conversationId,
+        peerName: ptySession?.running ? ptySession.peerName : undefined,
         statusChangedAt: s.statusChangedAt ?? signal?.changedAt,
         attentionMessage: s.status === 'unread' ? signal?.attentionMessage : undefined,
         isActive: openWin?.activeSessionId === s.sessionId,
@@ -1415,6 +1417,77 @@ async function detectConversationIds() {
 }
 const conversationDetectInterval = setInterval(() => { void detectConversationIds() }, 15_000)
 conversationDetectInterval.unref?.()
+
+// Keep each running session's Claude peer name (e.g. `forgeterm-96`, the name other
+// Claude sessions use for it) current from the live ~/.claude*/sessions/{pid}.json
+// files. The name can change mid-session, so this polls. Matching is by Claude
+// conversation id first; sessions left unmatched fall back to finding a live Claude
+// pid under their shell, which needs a `ps` snapshot, so that only runs when some
+// live Claude process is not yet claimed by a conversation id match.
+// Each window gets its full name map on change, and every 30s regardless so a
+// renderer that missed an update (session added after the push) catches up.
+let refreshingPeerNames = false
+let peerNameTick = 0
+async function refreshPeerNames() {
+  if (refreshingPeerNames) return
+  refreshingPeerNames = true
+  try {
+    const resendAll = peerNameTick++ % 6 === 0
+    const windows: Array<{ win: BrowserWindow; state: WindowState; resolved: Map<string, string> }> = []
+    let anyRunning = false
+    for (const [winId, state] of windowStates) {
+      const win = BrowserWindow.fromId(winId)
+      if (!win || win.isDestroyed()) continue
+      windows.push({ win, state, resolved: new Map() })
+      if (state.ptyManager.getAllSessions().some(s => s.running)) anyRunning = true
+    }
+    const live = anyRunning ? readLiveClaudeSessions(claudeSessionsDirs()) : []
+
+    // Pass 1: conversation id. Pass 2: pid ancestry over the still-unclaimed processes.
+    const claimed = new Set<string>()
+    const unmatched: Array<{ resolved: Map<string, string>; sessionId: string; shellPid: number }> = []
+    for (const { state, resolved } of windows) {
+      for (const s of state.ptyManager.getAllSessions()) {
+        if (!s.running || live.length === 0) continue
+        const name = peerNameByConversation(s.conversationId, live)
+        if (name) {
+          resolved.set(s.id, name)
+          claimed.add(name)
+        } else if (s.pid) {
+          unmatched.push({ resolved, sessionId: s.id, shellPid: s.pid })
+        }
+      }
+    }
+    const unclaimed = live.filter(l => !claimed.has(l.name))
+    if (unmatched.length > 0 && unclaimed.length > 0) {
+      const childMap = await snapshotProcessTree()
+      for (const { resolved, sessionId, shellPid } of unmatched) {
+        const name = peerNameByAncestry(shellPid, unclaimed, childMap)
+        if (name) resolved.set(sessionId, name)
+      }
+    }
+
+    let anyChanged = false
+    for (const { win, state, resolved } of windows) {
+      if (win.isDestroyed()) continue
+      let changed = false
+      for (const s of state.ptyManager.getAllSessions()) {
+        const next = resolved.get(s.id)
+        if (state.ptyManager.getSession(s.id)?.peerName !== next) {
+          state.ptyManager.setPeerName(s.id, next)
+          changed = true
+        }
+      }
+      if (changed || resendAll) win.webContents.send('session:peer-names', Object.fromEntries(resolved))
+      if (changed) anyChanged = true
+    }
+    if (anyChanged) pushDashboardState()
+  } finally {
+    refreshingPeerNames = false
+  }
+}
+const peerNameInterval = setInterval(() => { void refreshPeerNames() }, 5_000)
+peerNameInterval.unref?.()
 
 // --- Window tiling ---
 

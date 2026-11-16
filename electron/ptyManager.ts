@@ -11,6 +11,8 @@ interface PtySession {
   running: boolean
   info?: SessionContext
   conversationId?: string
+  // Claude Code peer name (e.g. `forgeterm-96`) while a live Claude runs in it.
+  peerName?: string
   createdAt: number
   // True once the user renamed this session manually; blocks CLI/Claude renames.
   nameLocked?: boolean
@@ -282,6 +284,11 @@ export class PtyManager {
   setConversationId(id: string, conversationId: string) {
     const session = this.sessions.get(id)
     if (session) session.conversationId = conversationId
+  }
+
+  setPeerName(id: string, peerName: string | undefined) {
+    const session = this.sessions.get(id)
+    if (session) session.peerName = peerName
   }
 
   getPid(id: string): number | null {

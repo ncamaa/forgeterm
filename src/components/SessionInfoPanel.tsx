@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Session } from '../store/sessionStore'
+import { PeerNameBadge } from './PeerNameBadge'
 import type { SessionTimelineEntry } from '../../shared/types'
 
 interface SessionInfoPanelProps {
@@ -42,6 +43,7 @@ export function SessionInfoPanel({ session, accentColor, onClose, onResume, onRe
     <div className="session-info-panel">
       <div className="session-info-panel-header">
         <div className="session-info-panel-title">{info?.title || session.name}</div>
+        {session.peerName && <PeerNameBadge name={session.peerName} />}
         <button className="session-info-panel-close" onClick={onClose} title="Close">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
             <path d="M4 4l8 8M12 4l-8 8" />

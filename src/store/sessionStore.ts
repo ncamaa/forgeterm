@@ -14,6 +14,8 @@ export interface Session {
   info?: SessionContext
   contextPercent?: number
   conversationId?: string
+  // Claude Code peer name (e.g. `forgeterm-96`) while a live Claude runs here.
+  peerName?: string
   // True once a precise activity signal (Claude hook / `ft activity`) has been
   // seen for this session. Disables the PTY-output heuristic so the two never fight.
   hookManaged?: boolean
@@ -33,6 +35,7 @@ interface SessionStore {
   renameSession: (id: string, name: string) => void
   setSessionInfo: (id: string, info: SessionContext) => void
   setConversationId: (id: string, conversationId: string) => void
+  setPeerNames: (names: Record<string, string>) => void
   setContextPercent: (id: string, percent: number) => void
   setActivityStatus: (id: string, status: SessionActivityStatus) => void
   markSessionWorking: (id: string) => void
@@ -115,6 +118,14 @@ export const useSessionStore = create<SessionStore>((set) => ({
         s.id === id ? { ...s, conversationId } : s,
       ),
     })),
+
+  // Replaces every session's peer name from the window's full map; returns the same
+  // state when nothing changed so the periodic resend does not re-render.
+  setPeerNames: (names) =>
+    set((state) => {
+      if (!state.sessions.some((s) => s.peerName !== names[s.id])) return state
+      return { sessions: state.sessions.map((s) => (s.peerName === names[s.id] ? s : { ...s, peerName: names[s.id] })) }
+    }),
 
   setContextPercent: (id, percent) =>
     set((state) => ({

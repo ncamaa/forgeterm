@@ -387,6 +387,12 @@ const api: ForgeTermAPI = {
     return () => { ipcRenderer.removeListener('session:conversation-updated', handler) }
   },
 
+  onPeerNamesUpdated: (callback: (names: Record<string, string>) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, names: Record<string, string>) => callback(names)
+    ipcRenderer.on('session:peer-names', handler)
+    return () => { ipcRenderer.removeListener('session:peer-names', handler) }
+  },
+
   onSessionActivityUpdated: (callback: (sessionId: string, signal: import('../shared/types').SessionActivitySignal) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, sessionId: string, signal: import('../shared/types').SessionActivitySignal) => callback(sessionId, signal)
     ipcRenderer.on('session:activity-updated', handler)

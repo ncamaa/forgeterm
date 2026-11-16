@@ -254,6 +254,8 @@ export interface DashboardSession {
   info?: SessionContext
   /** Claude conversation this session is attached to, if any. */
   conversationId?: string
+  /** Claude Code peer name (e.g. `forgeterm-96`) while a live Claude runs in the session. */
+  peerName?: string
   /** Epoch ms the activity status last changed - drives the "waiting 4m" column. */
   statusChangedAt?: number
   /**
@@ -458,6 +460,8 @@ export interface ForgeTermAPI {
   onSessionInfoUpdated: (callback: (sessionId: string, info: SessionContext) => void) => () => void
   onContextUpdated: (callback: (sessionId: string, percent: number) => void) => () => void
   onConversationUpdated: (callback: (sessionId: string, conversationId: string) => void) => () => void
+  /** Full sessionId -> Claude peer name map for this window; sessions not in it have none. */
+  onPeerNamesUpdated: (callback: (names: Record<string, string>) => void) => () => void
   onSessionActivityUpdated: (callback: (sessionId: string, signal: SessionActivitySignal) => void) => () => void
   installClaudeHooks: () => Promise<{ success: boolean; error?: string }>
   areClaudeHooksInstalled: () => Promise<boolean>

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSessionStore, SESSION_DRAG_TYPE, type Session } from '../store/sessionStore'
 import type { CliStatus } from '../../shared/types'
+import { PeerNameBadge } from './PeerNameBadge'
 
 interface MenuState {
   sessionId: string
@@ -290,7 +291,14 @@ export function Sidebar({
                 />
                 {!compact && (
                   <>
-                    <span className="session-name">{session.name}</span>
+                    {session.peerName ? (
+                      <span className="session-name-stack">
+                        <span className="session-name">{session.name}</span>
+                        <PeerNameBadge name={session.peerName} />
+                      </span>
+                    ) : (
+                      <span className="session-name">{session.name}</span>
+                    )}
                     <button
                       className="session-info-btn"
                       onClick={(e) => {

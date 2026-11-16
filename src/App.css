@@ -421,6 +421,55 @@
   flex: 1;
 }
 
+/* Claude Code peer name (e.g. forgeterm-96). The suffix is what identifies the
+   session, so the badge is never squeezed: in the sidebar it sits on its own line
+   under the title, elsewhere it stays whole and the title truncates instead. */
+.peer-name-badge {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  color: inherit;
+  opacity: 0.5;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  padding: 0 4px;
+  cursor: copy;
+  transition: opacity 0.15s;
+}
+.peer-name-badge:hover {
+  opacity: 0.9;
+}
+.session-name-stack {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+.session-name-stack .session-name {
+  max-width: 100%;
+}
+.session-name-stack .peer-name-badge {
+  max-width: 100%;
+  line-height: 1.3;
+  padding: 0 4px 0 0;
+  background: none;
+}
+.session-info-panel-header .peer-name-badge {
+  margin: 0 6px;
+}
+.cp-cell-name .peer-name-badge,
+.cp-card-session-top .peer-name-badge {
+  color: #94a3b8;
+}
+
 .rename-input {
   flex: 1;
   background: rgba(0, 0, 0, 0.3);
