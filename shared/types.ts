@@ -124,6 +124,7 @@ export interface UpdateInfo {
   releaseNotes?: string
   dmgUrl?: string
   supportsAutoInstall?: boolean
+  error?: string
 }
 
 export interface FavoriteTheme {

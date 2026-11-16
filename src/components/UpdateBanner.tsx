@@ -14,6 +14,7 @@ export function UpdateBanner({ accentColor }: UpdateBannerProps) {
   const [downloadProgress, setDownloadProgress] = useState(0)
   const [installing, setInstalling] = useState(false)
   const [upToDate, setUpToDate] = useState(false)
+  const [checkError, setCheckError] = useState<string | null>(null)
 
   useEffect(() => {
     window.forgeterm.getLastUpdateCheck().then((info) => {
@@ -31,10 +32,15 @@ export function UpdateBanner({ accentColor }: UpdateBannerProps) {
   // Listen for manual check results (from menu "Check for Updates...")
   useEffect(() => {
     return window.forgeterm.onUpdateCheckResult((info) => {
+      setCheckError(null)
       if (info.available) {
         setUpdate(info)
         setDismissed(false)
         setUpToDate(false)
+      } else if (info.error) {
+        setUpdate(null)
+        setUpToDate(false)
+        setCheckError(info.error)
       } else {
         setUpdate(null)
         setUpToDate(true)
@@ -87,6 +93,43 @@ export function UpdateBanner({ accentColor }: UpdateBannerProps) {
     }
     setShowMenu(false)
   }, [update])
+
+  // "Couldn't check" banner
+  if (checkError) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '5px 14px',
+          background: 'rgba(248, 113, 113, 0.06)',
+          borderBottom: '1px solid rgba(248, 113, 113, 0.12)',
+          fontSize: 12,
+          flexShrink: 0,
+        }}
+      >
+        <span style={{ color: '#f87171', flex: 1 }}>
+          Couldn't check for updates: {checkError}
+        </span>
+        <button
+          onClick={() => setCheckError(null)}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'rgba(248, 113, 113, 0.6)',
+            cursor: 'pointer',
+            fontSize: 14,
+            padding: '0 2px',
+            lineHeight: 1,
+          }}
+          title="Dismiss"
+        >
+          x
+        </button>
+      </div>
+    )
+  }
 
   // "You're up to date" banner
   if (upToDate) {

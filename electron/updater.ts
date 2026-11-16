@@ -18,6 +18,8 @@ export interface UpdateInfo {
   releaseUrl?: string
   releaseNotes?: string
   dmgUrl?: string
+  /** Set when the update check itself failed (not the same as up to date). */
+  error?: string
 }
 
 export interface UpdateProvider {
@@ -30,7 +32,7 @@ export interface UpdateProvider {
 
 // --- GitHub Release provider (notification-only) ---
 
-const GITHUB_OWNER = 'codama-dev'
+const GITHUB_OWNER = 'ncamaa'
 const GITHUB_REPO = 'forgeterm'
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000 // 6 hours
 
@@ -65,6 +67,39 @@ function fetchJson(url: string): Promise<unknown> {
   })
 }
 
+/** Extract the version from a `.../releases/tag/vX.Y.Z` redirect target. */
+export function parseVersionFromReleaseLocation(location: string): string | null {
+  const m = location.match(/\/tag\/v?(\d+\.\d+\.\d+(?:[-.][0-9A-Za-z.-]+)?)\/?$/)
+  return m ? m[1] : null
+}
+
+/**
+ * Fallback that is not subject to the unauthenticated API rate limit:
+ * github.com/<repo>/releases/latest answers with a 302 whose Location ends in /tag/vX.Y.Z.
+ */
+function fetchLatestTagViaRedirect(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const request = net.request({
+      url: `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
+      method: 'HEAD',
+      redirect: 'manual',
+    })
+    request.setHeader('User-Agent', `ForgeTerm/${app.getVersion()}`)
+    let settled = false
+    const finish = (fn: () => void) => { if (!settled) { settled = true; fn() } }
+    request.on('redirect', (_status, _method, redirectUrl) => {
+      const version = parseVersionFromReleaseLocation(redirectUrl)
+      finish(() => version ? resolve(version) : reject(new Error(`Unexpected redirect: ${redirectUrl}`)))
+      request.abort()
+    })
+    request.on('response', (response) => {
+      finish(() => reject(new Error(`HTTP ${response.statusCode} (no redirect)`)))
+    })
+    request.on('error', (err) => finish(() => reject(err)))
+    request.end()
+  })
+}
+
 export class GitHubReleaseProvider implements UpdateProvider {
   readonly supportsAutoInstall = false
 
@@ -88,8 +123,23 @@ export class GitHubReleaseProvider implements UpdateProvider {
         releaseNotes: data.body ?? undefined,
         dmgUrl: dmgAsset?.browser_download_url,
       }
-    } catch {
-      return { available: false, currentVersion }
+    } catch (apiErr) {
+      // API failed (rate limit, network): fall back to the github.com redirect.
+      try {
+        const latestVersion = await fetchLatestTagViaRedirect()
+        const base = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`
+        return {
+          available: compareVersions(currentVersion, latestVersion) > 0,
+          currentVersion,
+          latestVersion,
+          releaseUrl: `${base}/tag/v${latestVersion}`,
+          dmgUrl: `${base}/download/v${latestVersion}/ForgeTerm-Mac-${latestVersion}.dmg`,
+        }
+      } catch (fallbackErr) {
+        const reason = (apiErr instanceof Error ? apiErr.message : String(apiErr)) +
+          '; fallback: ' + (fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr))
+        return { available: false, currentVersion, error: reason }
+      }
     }
   }
 
