@@ -210,6 +210,14 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
       cursorBlink: true,
       allowProposedApi: true,
       scrollback: 5000,
+      // OSC 8 hyperlinks (Claude Code's markdown links). Without this, xterm's
+      // default handler calls window.open(), which Electron turns into a bare
+      // BrowserWindow instead of the default browser.
+      linkHandler: {
+        activate: (_event, uri) => {
+          window.forgeterm.openExternal(uri)
+        },
+      },
     })
 
     const fitAddon = new FitAddon()

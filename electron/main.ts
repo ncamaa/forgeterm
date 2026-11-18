@@ -3753,6 +3753,15 @@ app.on('open-file', (event, filePath) => {
   }
 })
 
+// Never let a renderer spawn its own BrowserWindow via window.open / target=_blank:
+// route web links to the default browser and drop everything else.
+app.on('web-contents-created', (_event, contents) => {
+  contents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url)
+    return { action: 'deny' }
+  })
+})
+
 app.whenReady().then(() => {
   app.setAboutPanelOptions({
     applicationName: 'ForgeTerm',
