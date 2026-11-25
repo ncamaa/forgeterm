@@ -6,6 +6,7 @@ import { execSync, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { PtyManager } from './ptyManager'
 import type { ForgeTermConfig, RecentProject, Workspace, WorkspaceTheme, ImportResult, FavoriteTheme, DetectedEditor, UpdateInfo, SessionTemplate, SessionStatusReport, SavedSession, SavedWindowState, SessionContext, SessionActivityStatus, HistoricalSession, SessionHistoryFilter, DashboardState, DashboardProject, DashboardSession, DashboardWorkspace, TranscriptSearchTarget } from '../shared/types'
+import { parseCliList } from '../shared/claudeCli'
 import { searchTranscripts, conversationTranscriptExists, findLatestConversationId } from './claudeTranscript'
 import { readLiveClaudeSessions, peerNameByConversation, peerNameByAncestry } from './claudePeerNames'
 import crypto from 'node:crypto'
@@ -526,6 +527,10 @@ function buildCliHandlers(): Map<string, CommandHandler> {
     if (p.description !== undefined) ws.description = p.description as string
     if (p.defaultCommand !== undefined) ws.defaultCommand = p.defaultCommand as string
     if (p.claudeCliName !== undefined) ws.claudeCliName = (p.claudeCliName as string) || undefined
+    if (p.claudeCliAlternates !== undefined) {
+      const list = parseCliList(p.claudeCliAlternates)
+      ws.claudeCliAlternates = list.length > 0 ? list : undefined
+    }
     if (p.dangerouslySkipPermissions !== undefined) ws.dangerouslySkipPermissions = p.dangerouslySkipPermissions as boolean
     // Theming: a preset name wins, otherwise a bare accent regenerates the chrome.
     if (p.theme !== undefined) {
@@ -1066,7 +1071,10 @@ function resolveClaudeLaunch(projectPath?: string): import('../shared/types').Cl
   const resumeArgs = config?.claudeResumeArgs && config.claudeResumeArgs.length > 0
     ? config.claudeResumeArgs
     : (skip ? ['--dangerously-skip-permissions'] : [])
-  return { cliName, resumeArgs }
+  const projectAlternates = parseCliList(config?.claudeCliAlternates)
+  const cliAlternates = (projectAlternates.length > 0 ? projectAlternates : parseCliList(ws?.claudeCliAlternates))
+    .filter((n) => n !== cliName)
+  return { cliName, resumeArgs, cliAlternates }
 }
 
 // --- Claude Code connection check ---
@@ -2953,6 +2961,10 @@ function setupIpcHandlers() {
       if (updates.description !== undefined) ws.description = updates.description || undefined
       if (updates.defaultCommand !== undefined) ws.defaultCommand = updates.defaultCommand || undefined
       if (updates.claudeCliName !== undefined) ws.claudeCliName = updates.claudeCliName || undefined
+      if (updates.claudeCliAlternates !== undefined) {
+        const list = parseCliList(updates.claudeCliAlternates)
+        ws.claudeCliAlternates = list.length > 0 ? list : undefined
+      }
       if (updates.dangerouslySkipPermissions !== undefined) ws.dangerouslySkipPermissions = updates.dangerouslySkipPermissions
       // A full theme wins; a bare accent color regenerates the chrome from it.
       if (updates.theme !== undefined) {

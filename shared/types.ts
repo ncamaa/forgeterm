@@ -40,6 +40,9 @@ export interface ForgeTermConfig {
   claudeResumeArgs?: string[]
   // Custom Claude CLI command name (default "claude"), e.g. "claude-hsp".
   claudeCliName?: string
+  // Extra Claude identities offered as one-click buttons next to the primary,
+  // e.g. ["claude-hsp-ncadm"]. Same precedence as claudeCliName.
+  claudeCliAlternates?: string[]
   // Whether ForgeTerm-built Claude resume/restore commands include
   // --dangerously-skip-permissions (default true).
   dangerouslySkipPermissions?: boolean
@@ -93,6 +96,8 @@ export interface Workspace {
   defaultCommand?: string
   // Custom Claude CLI command name for projects in this workspace (e.g. "claude-hsp").
   claudeCliName?: string
+  // Extra Claude identities for this workspace's projects (e.g. ["claude-hsp-ncadm"]).
+  claudeCliAlternates?: string[]
   // Whether automatic Claude resumes include --dangerously-skip-permissions.
   dangerouslySkipPermissions?: boolean
 }
@@ -184,6 +189,8 @@ export interface SavedSession {
 export interface ClaudeLaunch {
   cliName: string
   resumeArgs: string[]
+  /** Additional identities (never includes cliName). Empty/absent = one identity. */
+  cliAlternates?: string[]
 }
 
 export interface SavedWindowState {

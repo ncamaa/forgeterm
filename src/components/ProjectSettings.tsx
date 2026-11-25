@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { ForgeTermConfig, Workspace, SessionTemplate } from '../../shared/types'
+import { parseCliList } from '../../shared/claudeCli'
 
 interface SessionConfig {
   name: string
@@ -20,6 +21,7 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
   const [customName, setCustomName] = useState('')
   const [dragDropBehavior, setDragDropBehavior] = useState<'ask' | 'path' | 'content' | 'copy'>('ask')
   const [claudeCliName, setClaudeCliName] = useState('')
+  const [claudeCliAlternates, setClaudeCliAlternates] = useState('')
   const [skipPermissions, setSkipPermissions] = useState(true)
   const [workspaceName, setWorkspaceName] = useState('')
   const [existingWorkspaces, setExistingWorkspaces] = useState<Workspace[]>([])
@@ -34,6 +36,7 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
     setCustomName(config?.projectName ?? '')
     setDragDropBehavior(config?.dragDropBehavior ?? 'ask')
     setClaudeCliName(config?.claudeCliName ?? '')
+    setClaudeCliAlternates((config?.claudeCliAlternates ?? []).join(', '))
     setSkipPermissions(config?.dangerouslySkipPermissions ?? true)
     const configSessions = config?.sessions || []
     setSessions(
@@ -106,6 +109,7 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
 
   const handleSave = useCallback(async () => {
     const validSessions = sessions.filter((s) => s.name.trim())
+    const alternates = parseCliList(claudeCliAlternates)
     const updated: ForgeTermConfig = {
       ...config,
       projectName: customName.trim() || undefined,
@@ -113,6 +117,8 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
       // Empty CLI name inherits the workspace/default ("claude"); skip-permissions
       // is stored explicitly so the project always overrides the workspace.
       claudeCliName: claudeCliName.trim() || undefined,
+      // Empty list inherits the workspace's alternates, like the CLI name.
+      claudeCliAlternates: alternates.length > 0 ? alternates : undefined,
       dangerouslySkipPermissions: skipPermissions,
       sessions: validSessions.map((s) => ({
         name: s.name.trim(),
@@ -131,7 +137,7 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
       }
     }
     onSave(updated)
-  }, [config, customName, dragDropBehavior, claudeCliName, skipPermissions, sessions, workspaceName, onSave])
+  }, [config, customName, dragDropBehavior, claudeCliName, claudeCliAlternates, skipPermissions, sessions, workspaceName, onSave])
 
   const filteredWorkspaces = existingWorkspaces.filter(
     (ws) => ws.name.toLowerCase().includes(workspaceName.toLowerCase()) && ws.name !== workspaceName,
@@ -223,6 +229,14 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
             value={claudeCliName}
             onChange={(e) => setClaudeCliName(e.target.value)}
             placeholder="claude"
+          />
+          <input
+            type="text"
+            style={{ marginTop: 6 }}
+            value={claudeCliAlternates}
+            onChange={(e) => setClaudeCliAlternates(e.target.value)}
+            placeholder="Other identities, e.g. claude-work, claude-admin"
+            title="Extra Claude CLI names, comma or space separated. Each gets its own one-click Claude button."
           />
           <label className="checkbox-row" style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
             <input

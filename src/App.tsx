@@ -17,6 +17,7 @@ import { ClaudeConnectionBanner } from './components/ClaudeConnectionBanner'
 import { useSessionStore } from './store/sessionStore'
 import type { ForgeTermConfig, CliStatus, ClaudeLaunch, HistoricalSession } from '../shared/types'
 import type { WindowTheme } from './themes'
+import { launchFor, sessionIdentity } from '../shared/claudeCli'
 import { generateWindowTheme, adjustAccentBrightness, getTerminalTheme, titlebarGradient, accentGlow } from './themes'
 import './App.css'
 
@@ -26,8 +27,11 @@ const DEFAULT_CLAUDE_LAUNCH: ClaudeLaunch = { cliName: 'claude', resumeArgs: ['-
 
 // Build the command that resumes a Claude conversation, honoring the project's
 // resolved CLI name (e.g. "claude-hsp") and resume args (skip-permissions toggle).
-function buildResumeCommand(conversationId: string, launch: ClaudeLaunch): string {
-  return [launch.cliName, ...launch.resumeArgs, '--resume', conversationId].join(' ')
+// `sourceCommand` is the command the session originally ran: when it started
+// with one of the project's alternate identities, the resume uses that one too.
+function buildResumeCommand(conversationId: string, launch: ClaudeLaunch, sourceCommand?: string): string {
+  const cliName = sessionIdentity(sourceCommand, launch)
+  return [cliName, ...launch.resumeArgs, '--resume', conversationId].join(' ')
 }
 
 // What a brand-new session runs by default: this project's Claude CLI with its
@@ -153,7 +157,7 @@ function App() {
             if (s.claudeSessionId) {
               // Don't auto-resume Claude sessions on open: come up stopped, the
               // user resumes via the play button or the info-panel Resume button.
-              command = buildResumeCommand(s.claudeSessionId, launch)
+              command = buildResumeCommand(s.claudeSessionId, launch, s.command)
               idle = true
             }
 
@@ -358,7 +362,7 @@ function App() {
             let command = s.command
             let idle = !s.wasRunning
             if (s.claudeSessionId) {
-              command = buildResumeCommand(s.claudeSessionId, launch)
+              command = buildResumeCommand(s.claudeSessionId, launch, s.command)
               idle = true
             }
             const id = await window.forgeterm.createSession(s.name, command, idle, s.nameLocked, s.info)
@@ -624,7 +628,8 @@ function App() {
   // Resume a Claude conversation in a brand-new session (used when the source
   // session is already running).
   const handleResumeSession = useCallback(async (conversationId: string, name: string) => {
-    const command = buildResumeCommand(conversationId, claudeLaunch)
+    const source = useSessionStore.getState().sessions.find((s) => s.conversationId === conversationId)
+    const command = buildResumeCommand(conversationId, claudeLaunch, source?.command)
     const resumeName = `${name} (resume)`
     const id = await window.forgeterm.createSession(resumeName, command)
     if (id) {
@@ -637,7 +642,7 @@ function App() {
   // Reopen a closed/historical session as a new one. Claude sessions resume the
   // conversation; other shells re-run their stored command.
   const handleReopenHistorical = useCallback(async (h: HistoricalSession) => {
-    const command = h.conversationId ? buildResumeCommand(h.conversationId, claudeLaunch) : h.command
+    const command = h.conversationId ? buildResumeCommand(h.conversationId, claudeLaunch, h.command) : h.command
     const id = await window.forgeterm.createSession(h.name, command, undefined, undefined, h.info)
     if (id) {
       addSession({ id, name: h.name, command, running: true, conversationId: h.conversationId })
@@ -816,7 +821,8 @@ function App() {
             width={sidebarWidth}
             onWidthChange={handleSidebarWidthChange}
             onNewSession={() => openNewSessionModal('name')}
-            onQuickSession={() => createSession(DEFAULT_SESSION_NAME, claudeStartCommand, false, true)}
+            claudeLaunch={claudeLaunch}
+            onQuickSession={(cliName) => createSession(DEFAULT_SESSION_NAME, buildClaudeCommand(launchFor(claudeLaunch, cliName)), false, true)}
             onQuickTerminal={() => createSession('Terminal', undefined, false, true)}
             onDuplicateSession={(name, command) => createSession(name, command, false, true)}
             onProjectSettings={() => setShowProjectSettings(true)}

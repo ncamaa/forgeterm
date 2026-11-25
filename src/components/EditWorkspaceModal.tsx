@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo } from 'react'
 import type { Workspace, RecentProject } from '../../shared/types'
 import { PROJECT_EMOJIS } from '../themes'
+import { parseCliList } from '../../shared/claudeCli'
 
 interface EditWorkspaceModalProps {
   workspace: Workspace
@@ -26,6 +27,7 @@ export function EditWorkspaceModal({
   const [wsProjects, setWsProjects] = useState<string[]>([...workspace.projects])
   const [defaultCommand, setDefaultCommand] = useState(workspace.defaultCommand || '')
   const [wsClaudeCliName, setWsClaudeCliName] = useState(workspace.claudeCliName || '')
+  const [wsClaudeCliAlternates, setWsClaudeCliAlternates] = useState((workspace.claudeCliAlternates ?? []).join(', '))
   const [wsSkipPermissions, setWsSkipPermissions] = useState(workspace.dangerouslySkipPermissions ?? true)
   const [addProjectFilter, setAddProjectFilter] = useState('')
   const [showAddSuggestions, setShowAddSuggestions] = useState(false)
@@ -59,6 +61,7 @@ export function EditWorkspaceModal({
   const handleSave = useCallback(async () => {
     const trimmedName = name.trim()
     if (!trimmedName) return
+    const alternates = parseCliList(wsClaudeCliAlternates)
 
     // Rename if name changed
     if (trimmedName !== workspace.name) {
@@ -73,6 +76,8 @@ export function EditWorkspaceModal({
       defaultCommand: defaultCommand.trim() || undefined,
       // Empty string clears the override; the handler maps it back to undefined.
       claudeCliName: wsClaudeCliName.trim(),
+      // Empty list clears the alternates (the handler stores undefined).
+      claudeCliAlternates: alternates,
       dangerouslySkipPermissions: wsSkipPermissions,
     })
 
@@ -101,10 +106,11 @@ export function EditWorkspaceModal({
       accentColor: wsAccentColor.trim() || undefined,
       defaultCommand: defaultCommand.trim() || undefined,
       claudeCliName: wsClaudeCliName.trim() || undefined,
+      claudeCliAlternates: alternates.length > 0 ? alternates : undefined,
       dangerouslySkipPermissions: wsSkipPermissions,
       projects: wsProjects,
     })
-  }, [name, emoji, wsAccentColor, description, defaultCommand, wsClaudeCliName, wsSkipPermissions, wsProjects, workspace, onSave])
+  }, [name, emoji, wsAccentColor, description, defaultCommand, wsClaudeCliName, wsClaudeCliAlternates, wsSkipPermissions, wsProjects, workspace, onSave])
 
   const resolvedAccent = wsAccentColor || accentColor
 
@@ -260,6 +266,14 @@ export function EditWorkspaceModal({
             placeholder="claude"
           />
           <div className="ws-description-hint">Used for Claude resumes in this workspace's projects (e.g. claude-hsp)</div>
+          <input
+            type="text"
+            style={{ marginTop: 6 }}
+            value={wsClaudeCliAlternates}
+            onChange={(e) => setWsClaudeCliAlternates(e.target.value)}
+            placeholder="Other identities, e.g. claude-work, claude-admin"
+          />
+          <div className="ws-description-hint">Extra Claude CLI names, comma separated. Each gets its own one-click Claude button.</div>
           <label style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
             <input
               type="checkbox"

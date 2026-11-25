@@ -90,6 +90,21 @@ export function adjustAccentBrightness(accentHex: string, delta: number): string
   return hslToHex(h, s, Math.max(10, Math.min(90, l + delta)))
 }
 
+// Hue offsets for alternate Claude identities: far from the accent and from each other.
+const IDENTITY_HUE_OFFSETS = [150, 255, 60, 300]
+
+/**
+ * Color for the Claude identity at `index` (0 = primary, which keeps the accent).
+ * Alternates rotate the accent's hue but keep its lightness, so they keep the
+ * contrast the theme preset chose for its sidebar (dark or light).
+ */
+export function identityTint(accentHex: string, index: number): string {
+  if (index <= 0 || !accentHex?.startsWith('#') || accentHex.length !== 7) return accentHex
+  const [h, s, l] = hexToHsl(accentHex)
+  const offset = IDENTITY_HUE_OFFSETS[(index - 1) % IDENTITY_HUE_OFFSETS.length]
+  return hslToHex(h + offset, Math.max(s, 55), l)
+}
+
 /** Accent color as rgba, for glows and soft accent washes. */
 export function accentGlow(accentHex: string, alpha: number): string {
   if (!accentHex?.startsWith('#') || accentHex.length !== 7) return `rgba(56, 189, 248, ${alpha})`

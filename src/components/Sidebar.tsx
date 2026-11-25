@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSessionStore, SESSION_DRAG_TYPE, type Session } from '../store/sessionStore'
-import type { CliStatus } from '../../shared/types'
+import type { CliStatus, ClaudeLaunch } from '../../shared/types'
 import { PeerNameBadge } from './PeerNameBadge'
+import { claudeIdentities, identityShortName, sessionIdentity } from '../../shared/claudeCli'
+import { identityTint } from '../themes'
 
 interface MenuState {
   sessionId: string
@@ -18,7 +20,9 @@ interface SidebarProps {
   width: number
   onWidthChange: (width: number) => void
   onNewSession: () => void
-  onQuickSession: () => void
+  claudeLaunch: ClaudeLaunch
+  // Start a Claude session with the given identity (CLI name).
+  onQuickSession: (cliName: string) => void
   onQuickTerminal: () => void
   onDuplicateSession: (name: string, command?: string) => void
   onProjectSettings: () => void
@@ -40,6 +44,7 @@ export function Sidebar({
   width,
   onWidthChange,
   onNewSession,
+  claudeLaunch,
   onQuickSession,
   onQuickTerminal,
   onDuplicateSession,
@@ -68,6 +73,10 @@ export function Sidebar({
 
   const btnBg = buttonBackground ?? '#1c2d4d'
   const sidebarFg = sidebarForeground ?? '#8faabe'
+  // Primary first. With more than one identity the quick row gets one Claude
+  // button per identity, each tinted and badged with its short name.
+  const identities = claudeIdentities(claudeLaunch)
+  const multiIdentity = identities.length > 1
 
   useEffect(() => {
     if (editingId && editInputRef.current) {
@@ -291,14 +300,31 @@ export function Sidebar({
                 />
                 {!compact && (
                   <>
-                    {session.peerName ? (
-                      <span className="session-name-stack">
-                        <span className="session-name">{session.name}</span>
-                        <PeerNameBadge name={session.peerName} />
-                      </span>
-                    ) : (
-                      <span className="session-name">{session.name}</span>
-                    )}
+                    {(() => {
+                      // Badge only a session running a non-primary identity.
+                      const cli = multiIdentity ? sessionIdentity(session.command, claudeLaunch) : claudeLaunch.cliName
+                      const altCli = cli !== claudeLaunch.cliName ? cli : null
+                      if (!session.peerName && !altCli) {
+                        return <span className="session-name">{session.name}</span>
+                      }
+                      return (
+                        <span className="session-name-stack">
+                          <span className="session-name">{session.name}</span>
+                          <span className="session-name-sub">
+                            {altCli && (
+                              <span
+                                className="session-identity-badge"
+                                title={`Claude identity: ${altCli}`}
+                                style={{ color: identityTint(accentColor, identities.indexOf(altCli)) }}
+                              >
+                                {identityShortName(altCli)}
+                              </span>
+                            )}
+                            {session.peerName && <PeerNameBadge name={session.peerName} />}
+                          </span>
+                        </span>
+                      )
+                    })()}
                     <button
                       className="session-info-btn"
                       onClick={(e) => {
@@ -355,21 +381,32 @@ export function Sidebar({
           </div>
         ))}
         {!compact && (
-          <div className="sidebar-quick-choices">
+          <div className={`sidebar-quick-choices${multiIdentity ? ' multi-identity' : ''}`}>
+            {identities.map((cli, i) => {
+              const tint = identityTint(accentColor, i)
+              return (
+                <button
+                  key={cli}
+                  className="sidebar-quick-choice sidebar-quick-claude"
+                  onClick={(e) => { e.stopPropagation(); onQuickSession(cli) }}
+                  title={multiIdentity ? `New Claude session as ${cli}` : 'New Claude session'}
+                  style={{ borderColor: tint + '55', color: tint }}
+                >
+                  {/* Starburst = Claude */}
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 1l1.5 4.2L13.7 3l-2.2 4.2L16 8l-4.5 1.5L13.7 13l-4.2-2.2L8 15l-1.5-4.2L2.3 13l2.2-4.2L0 8l4.5-1.5L2.3 3l4.2 2.2z" />
+                  </svg>
+                  <span className="sidebar-quick-label">Claude</span>
+                  {multiIdentity && (
+                    <span className="sidebar-identity-badge" style={{ background: tint + '26' }}>
+                      {identityShortName(cli)}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
             <button
-              className="sidebar-quick-choice"
-              onClick={(e) => { e.stopPropagation(); onQuickSession() }}
-              title="New Claude session"
-              style={{ borderColor: accentColor + '55', color: accentColor }}
-            >
-              {/* Starburst = Claude */}
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M8 1l1.5 4.2L13.7 3l-2.2 4.2L16 8l-4.5 1.5L13.7 13l-4.2-2.2L8 15l-1.5-4.2L2.3 13l2.2-4.2L0 8l4.5-1.5L2.3 3l4.2 2.2z" />
-              </svg>
-              <span>Claude</span>
-            </button>
-            <button
-              className="sidebar-quick-choice"
+              className="sidebar-quick-choice sidebar-quick-terminal"
               onClick={(e) => { e.stopPropagation(); onQuickTerminal() }}
               title="New terminal session"
               style={{ borderColor: accentColor + '55', color: accentColor }}
@@ -379,7 +416,7 @@ export function Sidebar({
                 <rect x="1.5" y="2.5" width="13" height="11" rx="2" />
                 <path d="M4.5 6.5L7 8.75 4.5 11M8.5 11h3" />
               </svg>
-              <span>Terminal</span>
+              <span className="sidebar-quick-label">Terminal</span>
             </button>
             {/* Plus = full new-session modal, for a custom name or command. */}
             <button

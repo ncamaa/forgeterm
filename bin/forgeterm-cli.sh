@@ -698,6 +698,7 @@ else:
           --theme) shift; json+=",\"theme\":$(json_string "$1")" ;;
           --command) shift; json+=",\"defaultCommand\":$(json_string "$1")" ;;
           --claude-cli) shift; json+=",\"claudeCliName\":$(json_string "$1")" ;;
+          --claude-cli-alternates) shift; json+=",\"claudeCliAlternates\":$(json_string "$1")" ;;
           --skip-permissions) json+=",\"dangerouslySkipPermissions\":true" ;;
           --no-skip-permissions) json+=",\"dangerouslySkipPermissions\":false" ;;
           *) echo "Unknown option: $1" >&2; exit 1 ;;
@@ -728,6 +729,7 @@ Commands:
     --theme "midnight"                 Re-theme the whole workspace from a preset
     --command "default cmd"
     --claude-cli "claude-hsp"          Claude CLI name for this workspace
+    --claude-cli-alternates "a,b"      Extra Claude identities (one button each, "" clears)
     --skip-permissions | --no-skip-permissions
 USAGE
       ;;
@@ -797,6 +799,7 @@ Examples:
   ft config set window.emoji "rocket"     # Set emoji
   ft config set projectName "My App" --project ~/projects/app
   ft config set claudeResumeArgs '["--dangerously-skip-permissions"]'
+  ft config set claudeCliAlternates '["claude-hsp-ncadm"]'
 USAGE
       ;;
     *) echo "Unknown config command: $1" >&2; exit 1 ;;

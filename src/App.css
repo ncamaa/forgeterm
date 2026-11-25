@@ -943,9 +943,85 @@
 
 /* Too narrow for "Claude" / "Terminal" to fit: go icon-only rather than truncate. */
 @container (max-width: 240px) {
-  .sidebar-quick-choice span {
+  .sidebar-quick-choice .sidebar-quick-label {
     display: none;
   }
+}
+
+/* More than one Claude identity: one tinted Claude button per identity, each with
+   a short-name badge. The badge is what tells them apart, so the "Claude" label
+   and the Terminal label give way first, then the badge's chip background, and
+   only at the narrowest widths the starburst icon. */
+.sidebar-quick-choices.multi-identity .sidebar-quick-claude {
+  flex: 1 1 auto;
+  gap: 4px;
+  padding: 6px;
+}
+.sidebar-quick-choices.multi-identity .sidebar-quick-terminal {
+  flex: 0 0 auto;
+  padding: 6px;
+}
+.sidebar-quick-choices.multi-identity .sidebar-quick-terminal .sidebar-quick-label {
+  display: none;
+}
+.sidebar-quick-choices.multi-identity .sidebar-quick-more {
+  width: 28px;
+}
+.sidebar-identity-badge {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+@container (max-width: 330px) {
+  .sidebar-quick-choices.multi-identity .sidebar-quick-claude .sidebar-quick-label {
+    display: none;
+  }
+}
+@container (max-width: 300px) {
+  .sidebar-quick-choices.multi-identity {
+    gap: 3px;
+  }
+  .sidebar-quick-choices.multi-identity .sidebar-quick-claude {
+    gap: 3px;
+    padding: 6px 5px;
+  }
+  .sidebar-quick-choices.multi-identity .sidebar-quick-more {
+    width: 24px;
+  }
+  .sidebar-quick-choices.multi-identity .sidebar-identity-badge {
+    padding: 0;
+    background: none !important;
+  }
+}
+@container (max-width: 200px) {
+  .sidebar-quick-choices.multi-identity .sidebar-quick-claude svg {
+    display: none;
+  }
+}
+
+/* A session running a non-primary Claude identity: a quiet short-name tag on
+   the line under the title (next to the peer name when there is one). */
+.session-name-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+}
+.session-identity-badge {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.3;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+.session-name-sub .peer-name-badge {
+  flex: 0 1 auto;
 }
 
 .sidebar-actions {
