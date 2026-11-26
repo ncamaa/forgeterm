@@ -11,6 +11,10 @@ export interface LiveClaudeSession {
   sessionId?: string
   name: string
   updatedAt: number
+  /** Claude config dir the process runs under, e.g. `/Users/me/.claude-hsp`. */
+  configDir: string
+  /** Working directory Claude was started in (picks the transcript's project folder). */
+  cwd?: string
 }
 
 function pidAlive(pid: number): boolean {
@@ -35,6 +39,7 @@ export function readLiveClaudeSessions(
     } catch {
       continue
     }
+    const configDir = path.dirname(dir)
     for (const file of files) {
       try {
         const data = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf-8'))
@@ -46,6 +51,8 @@ export function readLiveClaudeSessions(
           sessionId: typeof data.sessionId === 'string' ? data.sessionId : undefined,
           name: data.name,
           updatedAt: Number(data.updatedAt) || 0,
+          configDir,
+          cwd: typeof data.cwd === 'string' ? data.cwd : undefined,
         })
       } catch { /* partial write or not a session file */ }
     }
@@ -58,18 +65,18 @@ function newest(list: LiveClaudeSession[]): LiveClaudeSession | undefined {
 }
 
 // Match by Claude conversation id first (no process scan needed).
-export function peerNameByConversation(conversationId: string | undefined, live: LiveClaudeSession[]): string | null {
+export function liveSessionByConversation(conversationId: string | undefined, live: LiveClaudeSession[]): LiveClaudeSession | null {
   if (!conversationId) return null
-  return newest(live.filter(s => s.sessionId === conversationId))?.name ?? null
+  return newest(live.filter(s => s.sessionId === conversationId)) ?? null
 }
 
 // Fallback: a live Claude process somewhere under the session's shell pid. Covers
 // the window before the conversation id is known and a stale id after /clear.
-export function peerNameByAncestry(
+export function liveSessionByAncestry(
   shellPid: number,
   live: LiveClaudeSession[],
   childMap: Map<number, number[]>,
-): string | null {
+): LiveClaudeSession | null {
   const byPid = new Map(live.map(s => [s.pid, s]))
   const found: LiveClaudeSession[] = []
   const stack = [...(childMap.get(shellPid) ?? [])]
@@ -83,5 +90,5 @@ export function peerNameByAncestry(
     const kids = childMap.get(pid)
     if (kids) stack.push(...kids)
   }
-  return newest(found)?.name ?? null
+  return newest(found) ?? null
 }

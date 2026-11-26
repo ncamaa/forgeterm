@@ -7,8 +7,9 @@ import { promisify } from 'node:util'
 import { PtyManager } from './ptyManager'
 import type { ForgeTermConfig, RecentProject, Workspace, WorkspaceTheme, ImportResult, FavoriteTheme, DetectedEditor, UpdateInfo, SessionTemplate, SessionStatusReport, SavedSession, SavedWindowState, SessionContext, SessionActivityStatus, HistoricalSession, SessionHistoryFilter, DashboardState, DashboardProject, DashboardSession, DashboardWorkspace, TranscriptSearchTarget } from '../shared/types'
 import { parseCliList } from '../shared/claudeCli'
-import { searchTranscripts, conversationTranscriptExists, findLatestConversationId } from './claudeTranscript'
-import { readLiveClaudeSessions, peerNameByConversation, peerNameByAncestry } from './claudePeerNames'
+import { searchTranscripts, conversationTranscriptExists, findLatestConversationId, liveTranscriptPath, latestTranscriptModel } from './claudeTranscript'
+import { readLiveClaudeSessions, liveSessionByConversation, liveSessionByAncestry, type LiveClaudeSession } from './claudePeerNames'
+import { identityKeyFromConfigDir, type ClaudeSessionInfo, type ClaudeIdentityBadgeOverrides } from '../shared/claudeBadge'
 import crypto from 'node:crypto'
 import { UpdateManager } from './updater'
 import { NotificationServer, getSocketPath, type CommandHandler } from './notificationServer'
@@ -1436,12 +1437,35 @@ conversationDetectInterval.unref?.()
 // renderer that missed an update (session added after the push) catches up.
 let refreshingPeerNames = false
 let peerNameTick = 0
+// Last claude-info payload per window id, so unchanged maps are not resent every 5s.
+const lastClaudeInfo = new Map<number, string>()
+
+// Identity key from the config dir the process writes its sessions file under,
+// model from the tail of its live transcript (cached by mtime/size).
+function claudeSessionInfo(hit: LiveClaudeSession): ClaudeSessionInfo {
+  const identity = identityKeyFromConfigDir(path.basename(hit.configDir))
+  const transcript = hit.sessionId ? liveTranscriptPath(hit.configDir, hit.cwd, hit.sessionId) : null
+  const model = transcript ? latestTranscriptModel(transcript) : null
+  return model ? { identity, model } : { identity }
+}
+
+function loadIdentityBadgeOverrides(): ClaudeIdentityBadgeOverrides {
+  const raw = loadUiPrefs().claudeIdentityBadges
+  const out: ClaudeIdentityBadgeOverrides = {}
+  if (!raw || typeof raw !== 'object') return out
+  for (const [key, v] of Object.entries(raw)) {
+    if (!v || typeof v !== 'object') continue
+    const pick = (x: unknown) => (typeof x === 'string' && x.trim() ? x.trim() : undefined)
+    out[key] = { label: pick(v.label), color: pick(v.color), textColor: pick(v.textColor) }
+  }
+  return out
+}
 async function refreshPeerNames() {
   if (refreshingPeerNames) return
   refreshingPeerNames = true
   try {
     const resendAll = peerNameTick++ % 6 === 0
-    const windows: Array<{ win: BrowserWindow; state: WindowState; resolved: Map<string, string> }> = []
+    const windows: Array<{ win: BrowserWindow; state: WindowState; resolved: Map<string, LiveClaudeSession> }> = []
     let anyRunning = false
     for (const [winId, state] of windowStates) {
       const win = BrowserWindow.fromId(winId)
@@ -1453,14 +1477,14 @@ async function refreshPeerNames() {
 
     // Pass 1: conversation id. Pass 2: pid ancestry over the still-unclaimed processes.
     const claimed = new Set<string>()
-    const unmatched: Array<{ resolved: Map<string, string>; sessionId: string; shellPid: number }> = []
+    const unmatched: Array<{ resolved: Map<string, LiveClaudeSession>; sessionId: string; shellPid: number }> = []
     for (const { state, resolved } of windows) {
       for (const s of state.ptyManager.getAllSessions()) {
         if (!s.running || live.length === 0) continue
-        const name = peerNameByConversation(s.conversationId, live)
-        if (name) {
-          resolved.set(s.id, name)
-          claimed.add(name)
+        const hit = liveSessionByConversation(s.conversationId, live)
+        if (hit) {
+          resolved.set(s.id, hit)
+          claimed.add(hit.name)
         } else if (s.pid) {
           unmatched.push({ resolved, sessionId: s.id, shellPid: s.pid })
         }
@@ -1470,24 +1494,40 @@ async function refreshPeerNames() {
     if (unmatched.length > 0 && unclaimed.length > 0) {
       const childMap = await snapshotProcessTree()
       for (const { resolved, sessionId, shellPid } of unmatched) {
-        const name = peerNameByAncestry(shellPid, unclaimed, childMap)
-        if (name) resolved.set(sessionId, name)
+        const hit = liveSessionByAncestry(shellPid, unclaimed, childMap)
+        if (hit) resolved.set(sessionId, hit)
       }
     }
 
     let anyChanged = false
+    let badges: ClaudeIdentityBadgeOverrides | null = null
     for (const { win, state, resolved } of windows) {
       if (win.isDestroyed()) continue
       let changed = false
+      const names: Record<string, string> = {}
+      const info: Record<string, ClaudeSessionInfo> = {}
+      for (const [id, hit] of resolved) {
+        names[id] = hit.name
+        info[id] = claudeSessionInfo(hit)
+      }
       for (const s of state.ptyManager.getAllSessions()) {
-        const next = resolved.get(s.id)
+        const next = names[s.id]
         if (state.ptyManager.getSession(s.id)?.peerName !== next) {
           state.ptyManager.setPeerName(s.id, next)
           changed = true
         }
       }
-      if (changed || resendAll) win.webContents.send('session:peer-names', Object.fromEntries(resolved))
+      if (changed || resendAll) win.webContents.send('session:peer-names', names)
       if (changed) anyChanged = true
+
+      // Identity + model badge: sent on change, and with every periodic resend so
+      // edits to ui-prefs.json `claudeIdentityBadges` show up within 30s.
+      const infoKey = JSON.stringify(info)
+      if (resendAll || lastClaudeInfo.get(win.id) !== infoKey) {
+        lastClaudeInfo.set(win.id, infoKey)
+        badges ??= loadIdentityBadgeOverrides()
+        win.webContents.send('session:claude-info', info, badges)
+      }
     }
     if (anyChanged) pushDashboardState()
   } finally {
@@ -1907,6 +1947,7 @@ function createProjectWindow(projectPath: string | null) {
       windowStates.delete(win.id)
     }
     windowActivities.delete(win.id)
+    lastClaudeInfo.delete(win.id)
     updateTrayMenu()
     updateDockBadge()
   })

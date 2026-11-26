@@ -267,12 +267,15 @@ function App() {
     const unsubPeerNames = window.forgeterm.onPeerNamesUpdated((names) => {
       useSessionStore.getState().setPeerNames(names)
     })
+    const unsubClaudeInfo = window.forgeterm.onClaudeInfoUpdated((info, badges) => {
+      useSessionStore.getState().setClaudeInfo(info, badges)
+    })
     const unsubActivity = window.forgeterm.onSessionActivityUpdated((sessionId, signal) => {
       const st = useSessionStore.getState()
       const viewing = st.activeSessionId === sessionId && document.hasFocus()
       st.applyActivitySignal(sessionId, signal, viewing)
     })
-    return () => { unsubRename(); unsubClosed(); unsubInfo(); unsubContext(); unsubConversation(); unsubPeerNames(); unsubActivity() }
+    return () => { unsubRename(); unsubClosed(); unsubInfo(); unsubContext(); unsubConversation(); unsubPeerNames(); unsubClaudeInfo(); unsubActivity() }
   }, [])
 
   // Listen for session exits

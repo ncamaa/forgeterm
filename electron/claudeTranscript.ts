@@ -141,6 +141,89 @@ export function findLatestConversationId(projectPath: string, exclude: Set<strin
   return best?.id ?? null
 }
 
+// --- Current model of a live session ---
+//
+// The model a session is using is the `message.model` of its newest assistant
+// entry. Polled every few seconds for every live Claude session, so it must stay
+// cheap: a stat per call, and only when the file changed, a read of its new tail
+// (at most TAIL_SPANS[last] bytes). Transcripts can be many MB.
+
+const pathCache = new Map<string, { path: string | null; at: number }>()
+const PATH_RETRY_MS = 60_000
+
+/**
+ * Transcript of a live conversation: `<configDir>/projects/<encoded cwd>/<id>.jsonl`,
+ * else (at most once a minute per id) a scan of every projects root. Null until
+ * Claude writes the file, which happens after the first message.
+ */
+export function liveTranscriptPath(configDir: string, cwd: string | undefined, conversationId: string): string | null {
+  if (cwd) {
+    const direct = path.join(configDir, 'projects', encodeProjectDir(cwd), `${conversationId}.jsonl`)
+    if (fs.existsSync(direct)) return direct
+  }
+  const hit = pathCache.get(conversationId)
+  if (hit && (hit.path ? fs.existsSync(hit.path) : Date.now() - hit.at < PATH_RETRY_MS)) return hit.path
+  const found = resolveTranscriptPath(conversationId, cwd ?? '')
+  if (pathCache.size > 500) pathCache.clear()
+  pathCache.set(conversationId, { path: found, at: Date.now() })
+  return found
+}
+
+const modelCache = new Map<string, { mtimeMs: number; size: number; model: string | null }>()
+const TAIL_SPANS = [64 * 1024, 512 * 1024, 4 * 1024 * 1024]
+
+function lineModel(line: string): string | null {
+  if (!line.includes('"assistant"') || !line.includes('"model"')) return null
+  try {
+    const entry = JSON.parse(line)
+    if (entry?.type !== 'assistant' || entry.isSidechain) return null
+    const model = entry.message?.model
+    // `<synthetic>` marks Claude Code's own placeholder replies (errors, interrupts).
+    return typeof model === 'string' && model && !model.startsWith('<') ? model : null
+  } catch {
+    return null
+  }
+}
+
+// Newest assistant model in bytes [from, size), reading backwards in growing spans.
+function tailModel(file: string, size: number, from: number): string | null {
+  let fd: number
+  try { fd = fs.openSync(file, 'r') } catch { return null }
+  try {
+    for (const span of TAIL_SPANS) {
+      const start = Math.max(from, size - span)
+      const len = size - start
+      if (len <= 0) return null
+      const buf = Buffer.alloc(len)
+      fs.readSync(fd, buf, 0, len, start)
+      const lines = buf.toString('utf-8').split('\n')
+      if (start > from) lines.shift() // cut mid-line; at `from` a line starts (Claude appends whole lines)
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const model = lineModel(lines[i])
+        if (model) return model
+      }
+      if (start === from) return null
+    }
+    return null
+  } finally {
+    fs.closeSync(fd)
+  }
+}
+
+/** Model id of the newest assistant reply in a transcript, e.g. `claude-opus-5-5`. */
+export function latestTranscriptModel(file: string): string | null {
+  let st: fs.Stats
+  try { st = fs.statSync(file) } catch { return null }
+  const prev = modelCache.get(file)
+  if (prev && prev.mtimeMs === st.mtimeMs && prev.size === st.size) return prev.model
+  // Appended since last time: only the new bytes can hold a newer model.
+  const grown = prev && st.size > prev.size
+  const model = tailModel(file, st.size, grown ? prev.size : 0) ?? (grown ? prev.model : null)
+  if (modelCache.size > 200) modelCache.clear()
+  modelCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, model })
+  return model
+}
+
 function collapse(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
 }

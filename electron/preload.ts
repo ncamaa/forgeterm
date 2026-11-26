@@ -393,6 +393,19 @@ const api: ForgeTermAPI = {
     return () => { ipcRenderer.removeListener('session:peer-names', handler) }
   },
 
+  onClaudeInfoUpdated: (callback: (
+    info: Record<string, import('../shared/claudeBadge').ClaudeSessionInfo>,
+    badges: import('../shared/claudeBadge').ClaudeIdentityBadgeOverrides,
+  ) => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      info: Record<string, import('../shared/claudeBadge').ClaudeSessionInfo>,
+      badges: import('../shared/claudeBadge').ClaudeIdentityBadgeOverrides,
+    ) => callback(info, badges)
+    ipcRenderer.on('session:claude-info', handler)
+    return () => { ipcRenderer.removeListener('session:claude-info', handler) }
+  },
+
   onSessionActivityUpdated: (callback: (sessionId: string, signal: import('../shared/types').SessionActivitySignal) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, sessionId: string, signal: import('../shared/types').SessionActivitySignal) => callback(sessionId, signal)
     ipcRenderer.on('session:activity-updated', handler)

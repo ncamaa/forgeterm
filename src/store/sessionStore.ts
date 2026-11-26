@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { SessionActivityStatus, SessionActivitySignal, SessionContext } from '../../shared/types'
+import type { ClaudeSessionInfo, ClaudeIdentityBadgeOverrides } from '../../shared/claudeBadge'
 
 // dataTransfer type set while a sidebar session row is dragged to reorder, so other
 // drop targets (the terminal's file drop) can tell it apart from external drags.
@@ -16,6 +17,9 @@ export interface Session {
   conversationId?: string
   // Claude Code peer name (e.g. `forgeterm-96`) while a live Claude runs here.
   peerName?: string
+  // Claude identity + current model while a live Claude runs here; kept after the
+  // session stops so its row still says what it was.
+  claudeInfo?: ClaudeSessionInfo
   // True once a precise activity signal (Claude hook / `ft activity`) has been
   // seen for this session. Disables the PTY-output heuristic so the two never fight.
   hookManaged?: boolean
@@ -36,6 +40,9 @@ interface SessionStore {
   setSessionInfo: (id: string, info: SessionContext) => void
   setConversationId: (id: string, conversationId: string) => void
   setPeerNames: (names: Record<string, string>) => void
+  // ui-prefs `claudeIdentityBadges`, delivered with every claude-info push.
+  identityBadges: ClaudeIdentityBadgeOverrides
+  setClaudeInfo: (info: Record<string, ClaudeSessionInfo>, badges: ClaudeIdentityBadgeOverrides) => void
   setContextPercent: (id: string, percent: number) => void
   setActivityStatus: (id: string, status: SessionActivityStatus) => void
   markSessionWorking: (id: string) => void
@@ -125,6 +132,28 @@ export const useSessionStore = create<SessionStore>((set) => ({
     set((state) => {
       if (!state.sessions.some((s) => s.peerName !== names[s.id])) return state
       return { sessions: state.sessions.map((s) => (s.peerName === names[s.id] ? s : { ...s, peerName: names[s.id] })) }
+    }),
+
+  identityBadges: {},
+
+  // Full map for the window. A stopped session keeps its last info; a running one
+  // without a live Claude (Claude exited back to the shell) loses it.
+  setClaudeInfo: (info, badges) =>
+    set((state) => {
+      const same = (a?: ClaudeSessionInfo, b?: ClaudeSessionInfo) => a?.identity === b?.identity && a?.model === b?.model
+      let changed = false
+      const sessions = state.sessions.map((s) => {
+        const next = info[s.id] ?? (s.running ? undefined : s.claudeInfo)
+        if (same(next, s.claudeInfo)) return s
+        changed = true
+        return { ...s, claudeInfo: next }
+      })
+      const badgesChanged = JSON.stringify(badges) !== JSON.stringify(state.identityBadges)
+      if (!changed && !badgesChanged) return state
+      return {
+        ...(changed ? { sessions } : {}),
+        ...(badgesChanged ? { identityBadges: badges } : {}),
+      }
     }),
 
   setContextPercent: (id, percent) =>

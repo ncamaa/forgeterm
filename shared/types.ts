@@ -307,6 +307,12 @@ export interface DashboardState {
 export interface UiPrefs {
   /** How the Control Panel lays projects out. */
   dashboardView?: 'list' | 'cards'
+  /**
+   * Label/color of the Claude identity chip on session rows, keyed by identity:
+   * "default" for ~/.claude, "<name>" for ~/.claude-<name>. Edit ui-prefs.json
+   * by hand; picked up within 30s. Example: { "hsp": { "label": "WORK", "color": "#008700" } }
+   */
+  claudeIdentityBadges?: import('./claudeBadge').ClaudeIdentityBadgeOverrides
 }
 
 export interface ForgeTermNotification {
@@ -470,6 +476,11 @@ export interface ForgeTermAPI {
   onConversationUpdated: (callback: (sessionId: string, conversationId: string) => void) => () => void
   /** Full sessionId -> Claude peer name map for this window; sessions not in it have none. */
   onPeerNamesUpdated: (callback: (names: Record<string, string>) => void) => () => void
+  /** Identity + model of every live Claude session in the window, with the badge overrides. */
+  onClaudeInfoUpdated: (callback: (
+    info: Record<string, import('./claudeBadge').ClaudeSessionInfo>,
+    badges: import('./claudeBadge').ClaudeIdentityBadgeOverrides,
+  ) => void) => () => void
   onSessionActivityUpdated: (callback: (sessionId: string, signal: SessionActivitySignal) => void) => () => void
   installClaudeHooks: () => Promise<{ success: boolean; error?: string }>
   areClaudeHooksInstalled: () => Promise<boolean>

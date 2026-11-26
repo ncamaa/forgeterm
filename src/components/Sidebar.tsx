@@ -2,8 +2,10 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSessionStore, SESSION_DRAG_TYPE, type Session } from '../store/sessionStore'
 import type { CliStatus, ClaudeLaunch } from '../../shared/types'
 import { PeerNameBadge } from './PeerNameBadge'
-import { claudeIdentities, identityShortName, sessionIdentity } from '../../shared/claudeCli'
-import { identityTint } from '../themes'
+import { ClaudeSessionBadge } from './ClaudeSessionBadge'
+import { claudeIdentities, identityShortName } from '../../shared/claudeCli'
+import { identityKeyFromCli } from '../../shared/claudeBadge'
+import { identityTint, isLightChrome } from '../themes'
 
 interface MenuState {
   sessionId: string
@@ -57,7 +59,7 @@ export function Sidebar({
   cliStatus,
   remoteRunning,
 }: SidebarProps) {
-  const { sessions, activeSessionId, setActive, removeSession, renameRequestId, clearRenameRequest } = useSessionStore()
+  const { sessions, activeSessionId, setActive, removeSession, renameRequestId, clearRenameRequest, identityBadges } = useSessionStore()
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
@@ -244,7 +246,7 @@ export function Sidebar({
 
   return (
     <div
-      className={`sidebar ${compact ? 'sidebar-compact' : ''}${isDragging ? ' sidebar-dragging' : ''}`}
+      className={`sidebar ${compact ? 'sidebar-compact' : ''}${isDragging ? ' sidebar-dragging' : ''}${isLightChrome({ sidebarBackground: sidebarBackground ?? '' }) ? ' sidebar-light' : ''}`}
       style={{
         ...(!compact ? { width, minWidth: width } : {}),
         ...(sidebarBackground ? { background: sidebarBackground } : {}),
@@ -301,24 +303,31 @@ export function Sidebar({
                 {!compact && (
                   <>
                     {(() => {
-                      // Badge only a session running a non-primary identity.
-                      const cli = multiIdentity ? sessionIdentity(session.command, claudeLaunch) : claudeLaunch.cliName
-                      const altCli = cli !== claudeLaunch.cliName ? cli : null
-                      if (!session.peerName && !altCli) {
+                      // Identity + model of the live Claude; a stopped session keeps
+                      // what it last ran, or falls back to its command's CLI name.
+                      let claude: { identity: string; model?: string; stale: boolean } | null = null
+                      if (session.claudeInfo) {
+                        claude = { ...session.claudeInfo, stale: !session.running }
+                      } else if (!session.running) {
+                        const cli = session.command?.trim().split(/\s+/)[0]
+                        if (cli && (cli === 'claude' || identities.includes(cli))) {
+                          claude = { identity: identityKeyFromCli(cli), stale: true }
+                        }
+                      }
+                      if (!session.peerName && !claude) {
                         return <span className="session-name">{session.name}</span>
                       }
                       return (
                         <span className="session-name-stack">
                           <span className="session-name">{session.name}</span>
                           <span className="session-name-sub">
-                            {altCli && (
-                              <span
-                                className="session-identity-badge"
-                                title={`Claude identity: ${altCli}`}
-                                style={{ color: identityTint(accentColor, identities.indexOf(altCli)) }}
-                              >
-                                {identityShortName(altCli)}
-                              </span>
+                            {claude && (
+                              <ClaudeSessionBadge
+                                identity={claude.identity}
+                                model={claude.model}
+                                overrides={identityBadges}
+                                stale={claude.stale}
+                              />
                             )}
                             {session.peerName && <PeerNameBadge name={session.peerName} />}
                           </span>
